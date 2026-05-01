@@ -1,0 +1,7 @@
+.claude
+.playwright-mcp
+.spec-workflow
+/frontend/dist
+/frontend/node_modules
+.idea
+
