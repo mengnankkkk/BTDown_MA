@@ -7,12 +7,12 @@ import (
 )
 
 type HTTPStreamServer struct {
-	serverAddress          string
-	healthController       *controller.HealthController
-	sessionController      *controller.SessionController
-	settingsController     *controller.SettingsController
+	serverAddress           string
+	healthController        *controller.HealthController
+	sessionController       *controller.SessionController
+	settingsController      *controller.SettingsController
 	observabilityController *controller.ObservabilityController
-	streamController       *controller.StreamController
+	streamController        *controller.StreamController
 }
 
 func NewHTTPStreamServer(
@@ -79,6 +79,10 @@ func (server *HTTPStreamServer) handleSessionByID(w http.ResponseWriter, r *http
 	applyCORSHeaders(w)
 
 	switch {
+	case r.Method == http.MethodPost && len(r.URL.Path) > len("/api/v1/sessions/") && r.URL.Path[len(r.URL.Path)-6:] == "/pause":
+		server.sessionController.PauseSession(w, r)
+	case r.Method == http.MethodPost && len(r.URL.Path) > len("/api/v1/sessions/") && r.URL.Path[len(r.URL.Path)-7:] == "/resume":
+		server.sessionController.ResumeSession(w, r)
 	case r.Method == http.MethodPost && len(r.URL.Path) > len("/api/v1/sessions/") && r.URL.Path[len(r.URL.Path)-5:] == "/stop":
 		server.sessionController.StopSession(w, r)
 	case r.Method == http.MethodDelete:

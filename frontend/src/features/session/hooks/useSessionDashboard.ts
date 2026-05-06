@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { getObservabilityOverview } from '../../../services/observability/observabilityApi'
-import { cleanupSession, createSession, listSessions, stopSession } from '../../../services/session/sessionApi'
+import { cleanupSession, createSession, listSessions, pauseSession, resumeSession, stopSession } from '../../../services/session/sessionApi'
 import type { ObservabilityOverview } from '../../../types/observabilityOverview'
 import type { SessionCreatePayload } from '../../../types/sessionCreatePayload'
 import type { SessionItem } from '../../../types/session'
@@ -16,15 +16,23 @@ export function useSessionDashboard() {
     averageFirstFrameLatencyMs: 0,
     averageSeekRecoveryMs: 0,
     averageBufferHitRatio: 0,
-    recentStreamAccesses: []
+    recentStreamAccesses: [],
+    trend5m: []
   })
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [selectedSessionId, setSelectedSessionId] = useState('')
+  const loadingRef = useRef(false)
 
   useEffect(() => {
     void loadDashboardData()
+    const timer = window.setInterval(() => {
+      void loadDashboardData({ silent: true })
+    }, 5000)
+    return () => {
+      window.clearInterval(timer)
+    }
   }, [])
 
   const selectedSession = useMemo(
@@ -32,36 +40,51 @@ export function useSessionDashboard() {
     [selectedSessionId, sessions]
   )
 
-  async function loadDashboardData() {
-    setLoading(true)
-    setErrorMessage('')
+  async function loadDashboardData(options?: { silent?: boolean }) {
+    if (loadingRef.current) {
+      return
+    }
+
+    loadingRef.current = true
+    const silent = options?.silent ?? false
+
+    if (!silent) {
+      setLoading(true)
+      setErrorMessage('')
+    }
+
     try {
       const [sessionsResponse, overviewResponse] = await Promise.all([listSessions(), getObservabilityOverview()])
       const nextSessions = enrichSessions(sessionsResponse.data)
       setSessions(nextSessions)
       setOverview(overviewResponse.data)
-      setSelectedSessionId((current) => current || nextSessions[0]?.id || '')
+      setSelectedSessionId((current) => {
+        if (!nextSessions.length) {
+          return ''
+        }
+        if (current && nextSessions.some((session) => session.id === current)) {
+          return current
+        }
+        return nextSessions[0].id
+      })
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '加载会话失败')
+      if (!silent) {
+        setErrorMessage(error instanceof Error ? error.message : '加载会话失败')
+      }
     } finally {
-      setLoading(false)
+      loadingRef.current = false
+      if (!silent) {
+        setLoading(false)
+      }
     }
-  }
-
-  async function loadSessions() {
-    await loadDashboardData()
   }
 
   async function submitSession(payload: SessionCreatePayload) {
     setSubmitting(true)
     setErrorMessage('')
     try {
-      const response = await createSession(payload)
-      const nextSession = enrichSession(response.data)
-      setSessions((current) => [nextSession, ...current])
-      setSelectedSessionId(nextSession.id)
-      const overviewResponse = await getObservabilityOverview()
-      setOverview(overviewResponse.data)
+      await createSession(payload)
+      await loadDashboardData()
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '创建会话失败')
     } finally {
@@ -79,6 +102,32 @@ export function useSessionDashboard() {
       await loadDashboardData()
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '停止会话失败')
+    }
+  }
+
+  async function pauseCurrentSession() {
+    if (!selectedSession?.id) {
+      return
+    }
+    setErrorMessage('')
+    try {
+      await pauseSession(selectedSession.id)
+      await loadDashboardData()
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '暂停会话失败')
+    }
+  }
+
+  async function resumeCurrentSession() {
+    if (!selectedSession?.id) {
+      return
+    }
+    setErrorMessage('')
+    try {
+      await resumeSession(selectedSession.id)
+      await loadDashboardData()
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '恢复会话失败')
     }
   }
 
@@ -106,9 +155,11 @@ export function useSessionDashboard() {
     loading,
     submitting,
     errorMessage,
-    loadSessions,
+    loadDashboardData,
     submitSession,
     stopCurrentSession,
+    pauseCurrentSession,
+    resumeCurrentSession,
     cleanupCurrentSession,
     selectSession
   }

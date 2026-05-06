@@ -22,7 +22,7 @@ export function SessionCreateForm({ submitting, onSubmit }: SessionCreateFormPro
     <form className="panel session-form" onSubmit={handleSubmit}>
       <div className="panel-header">
         <h2>新建播放会话</h2>
-        <span>先接后端主链路，再接更多下载能力</span>
+        <span>提交磁力链接后立即建立下载会话并持续更新状态</span>
       </div>
       <label>
         <span>会话名称</span>

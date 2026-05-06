@@ -9,6 +9,16 @@ type ObservabilityOverviewResponse struct {
 	AverageSeekRecoveryMs            int64                `json:"averageSeekRecoveryMs"`
 	AverageBufferHitRatio            float64              `json:"averageBufferHitRatio"`
 	RecentStreamAccesses             []StreamAccessRecord `json:"recentStreamAccesses"`
+	Trend5m                          []TrendPoint         `json:"trend5m"`
+}
+
+type TrendPoint struct {
+	At                 string  `json:"at"`
+	RangeRequestCount  int     `json:"rangeRequestCount"`
+	AvgRangeDurationMs int64   `json:"avgRangeDurationMs"`
+	AvgSeekRecoveryMs  int64   `json:"avgSeekRecoveryMs"`
+	AvgBufferHitRatio  float64 `json:"avgBufferHitRatio"`
+	ActiveSessions     int     `json:"activeSessions"`
 }
 
 type StreamAccessRecord struct {

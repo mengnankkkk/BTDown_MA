@@ -31,6 +31,8 @@ func refreshSessionDerivedFields(session *model.Session, activeStreamRequests in
 		session.Status = model.SessionStatusStalled
 	case session.TotalBytes > 0 && session.DownloadedBytes >= session.TotalBytes:
 		session.Status = model.SessionStatusCompleted
+	case session.DownloadState == model.SessionDownloadStatePaused:
+		session.Status = model.SessionStatusReady
 	case session.DownloadState == model.SessionDownloadStateDownloading:
 		session.Status = model.SessionStatusDownloading
 	default:

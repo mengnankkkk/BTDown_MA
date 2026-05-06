@@ -1,5 +1,14 @@
 # BT 边下边播 Windows 桌面应用实现计划
 
+> 文档定位：
+> 本文件保留项目最初的总体方案、架构判断和历史 Todo 基线。
+> 它仍有参考价值，但**不再作为当前进度权威文档**。
+>
+> 当前状态请优先阅读：
+> - `../../todolist.md`
+> - `../streaming-execution-roadmap.md`
+> - `../download-speed-analysis-plan.md`
+
 ## 1. 结论先行
 
 当前产品目标已经明确，不再是“Go 流媒体原型服务”或“CLI 优先工具”，而是一个以 **Windows 桌面应用** 为目标形态的 BT 边下边播产品。

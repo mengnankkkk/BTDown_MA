@@ -3,6 +3,8 @@ import type { SessionItem } from '../../../types/session'
 interface SessionDetailPanelProps {
   session?: SessionItem
   onStopSession?: () => void
+  onPauseSession?: () => void
+  onResumeSession?: () => void
   onCleanupSession?: () => void
 }
 
@@ -21,7 +23,49 @@ function formatAvailabilityTier(tier: string): string {
   }
 }
 
-export function SessionDetailPanel({ session, onStopSession, onCleanupSession }: SessionDetailPanelProps) {
+function formatBytes(value: number): string {
+  const units = ['B', 'KiB', 'MiB', 'GiB']
+  let size = Math.max(0, value)
+  let unitIndex = 0
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024
+    unitIndex += 1
+  }
+
+  if (unitIndex === 0) {
+    return `${Math.round(size)} ${units[unitIndex]}`
+  }
+  return `${size.toFixed(2)} ${units[unitIndex]}`
+}
+
+function formatProgress(value: number): string {
+  return `${(Math.max(0, value) * 100).toFixed(1)}%`
+}
+
+function formatEta(remainingBytes: number, speedBytesPerSecond: number): string {
+  if (remainingBytes <= 0) {
+    return '已完成'
+  }
+  if (speedBytesPerSecond <= 0) {
+    return '计算中'
+  }
+
+  const totalSeconds = Math.ceil(remainingBytes / speedBytesPerSecond)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  if (hours > 0) {
+    return `${hours}小时${minutes}分${seconds}秒`
+  }
+  if (minutes > 0) {
+    return `${minutes}分${seconds}秒`
+  }
+  return `${seconds}秒`
+}
+
+export function SessionDetailPanel({ session, onStopSession, onPauseSession, onResumeSession, onCleanupSession }: SessionDetailPanelProps) {
   if (!session) {
     return (
       <section className="panel session-detail-panel">
@@ -33,6 +77,13 @@ export function SessionDetailPanel({ session, onStopSession, onCleanupSession }:
       </section>
     )
   }
+
+  const downloadProgress = session.metrics?.downloadProgress ?? 0
+  const downloadedBytes = session.metrics?.downloadedBytes ?? 0
+  const totalBytes = session.metrics?.totalBytes ?? 0
+  const remainingBytes = Math.max(0, totalBytes - downloadedBytes)
+  const downloadSpeedBytesPerSecond = session.metrics?.downloadSpeedBytesPerSecond ?? 0
+  const etaText = formatEta(remainingBytes, downloadSpeedBytesPerSecond)
 
   return (
     <section className="panel session-detail-panel">
@@ -123,11 +174,15 @@ export function SessionDetailPanel({ session, onStopSession, onCleanupSession }:
         </div>
         <div className="detail-item">
           <strong>下载进度</strong>
-          <p>{Math.round((session.metrics?.downloadProgress ?? 0) * 100)}%</p>
+          <p>{formatProgress(downloadProgress)}</p>
         </div>
         <div className="detail-item">
           <strong>已下载 / 总大小</strong>
-          <p>{session.metrics?.downloadedBytes ?? 0} / {session.metrics?.totalBytes ?? 0}</p>
+          <p>{formatBytes(downloadedBytes)} / {formatBytes(totalBytes)}</p>
+        </div>
+        <div className="detail-item">
+          <strong>预计剩余时间</strong>
+          <p>{etaText}</p>
         </div>
       </div>
       <div className="panel-subsection">
@@ -167,6 +222,22 @@ export function SessionDetailPanel({ session, onStopSession, onCleanupSession }:
       <div className="panel-subsection session-actions">
         <button type="button" className="session-action-button" onClick={onStopSession}>
           停止会话
+        </button>
+        <button
+          type="button"
+          className="session-action-button"
+          onClick={onPauseSession}
+          disabled={session.downloadState !== 'DOWNLOADING'}
+        >
+          暂停下载
+        </button>
+        <button
+          type="button"
+          className="session-action-button"
+          onClick={onResumeSession}
+          disabled={session.downloadState !== 'PAUSED'}
+        >
+          继续下载
         </button>
         <button type="button" className="session-action-button session-action-button-danger" onClick={onCleanupSession}>
           清理会话

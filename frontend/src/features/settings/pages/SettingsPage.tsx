@@ -17,7 +17,15 @@ const defaultSettings: AppSettings = {
   btListenPort: 51413,
   downloadRateLimitKiBps: 0,
   uploadRateLimitKiBps: 128,
-  enablePortForwarding: true
+  enablePortForwarding: true,
+  streamDynamicReadaheadEnabled: true,
+  streamReadaheadMinBytes: 2 << 20,
+  streamReadaheadMaxBytes: 16 << 20,
+  streamPreheatHeadPieces: 8,
+  streamPreheatTailPieces: 8,
+  streamSeekGapFactor: 1,
+  streamBoostWindowPieces: 12,
+  streamDeprioritizeOldWindow: true
 }
 
 export function SettingsPage() {
@@ -152,6 +160,88 @@ export function SettingsPage() {
           ]
         }
       },
+      {
+        title: '动态 Readahead',
+        key: 'streamDynamicReadaheadEnabled',
+        item: {
+          label: '动态 Readahead',
+          value: settings.streamDynamicReadaheadEnabled ? 'enabled' : 'disabled',
+          hint: '根据 Range 响应耗时自动调节预读窗口',
+          type: 'select' as const,
+          options: [
+            { label: '关闭', value: 'disabled' },
+            { label: '开启', value: 'enabled' }
+          ]
+        }
+      },
+      {
+        title: '最小 Readahead 字节数',
+        key: 'streamReadaheadMinBytes',
+        item: {
+          label: '最小 Readahead Bytes',
+          value: String(settings.streamReadaheadMinBytes),
+          hint: '动态预读下限（字节）'
+        }
+      },
+      {
+        title: '最大 Readahead 字节数',
+        key: 'streamReadaheadMaxBytes',
+        item: {
+          label: '最大 Readahead Bytes',
+          value: String(settings.streamReadaheadMaxBytes),
+          hint: '动态预读上限（字节）'
+        }
+      },
+      {
+        title: '首段预热 Piece 数',
+        key: 'streamPreheatHeadPieces',
+        item: {
+          label: '首段预热 Piece',
+          value: String(settings.streamPreheatHeadPieces),
+          hint: 'metadata 就绪后优先预热文件开头的 piece 数'
+        }
+      },
+      {
+        title: '尾段预热 Piece 数',
+        key: 'streamPreheatTailPieces',
+        item: {
+          label: '尾段预热 Piece',
+          value: String(settings.streamPreheatTailPieces),
+          hint: 'metadata 就绪后优先预热文件尾部的 piece 数'
+        }
+      },
+      {
+        title: 'Seek 判定系数',
+        key: 'streamSeekGapFactor',
+        item: {
+          label: 'Seek Gap Factor',
+          value: String(settings.streamSeekGapFactor),
+          hint: 'gap 超过当前 readahead * 系数时判定为 seek'
+        }
+      },
+      {
+        title: 'Seek 提权窗口 Piece 数',
+        key: 'streamBoostWindowPieces',
+        item: {
+          label: 'Boost Window Pieces',
+          value: String(settings.streamBoostWindowPieces),
+          hint: 'seek 后围绕目标区域提权下载的窗口大小'
+        }
+      },
+      {
+        title: '旧窗口降级',
+        key: 'streamDeprioritizeOldWindow',
+        item: {
+          label: '旧窗口降级',
+          value: settings.streamDeprioritizeOldWindow ? 'enabled' : 'disabled',
+          hint: 'seek 到新位置后是否将旧提权窗口降级',
+          type: 'select' as const,
+          options: [
+            { label: '关闭', value: 'disabled' },
+            { label: '开启', value: 'enabled' }
+          ]
+        }
+      },
     ],
     [settings]
   )
@@ -207,6 +297,18 @@ export function SettingsPage() {
           enablePortForwarding: value === 'enabled'
         }
       }
+      if (key === 'streamDynamicReadaheadEnabled') {
+        return {
+          ...current,
+          streamDynamicReadaheadEnabled: value === 'enabled'
+        }
+      }
+      if (key === 'streamDeprioritizeOldWindow') {
+        return {
+          ...current,
+          streamDeprioritizeOldWindow: value === 'enabled'
+        }
+      }
       if (key === 'publicTrackers') {
         return {
           ...current,
@@ -216,7 +318,23 @@ export function SettingsPage() {
             .filter(Boolean)
         }
       }
-      if (key === 'btListenPort' || key === 'downloadRateLimitKiBps' || key === 'uploadRateLimitKiBps') {
+      if (key === 'streamSeekGapFactor') {
+        const floatValue = Number.parseFloat(value)
+        return {
+          ...current,
+          streamSeekGapFactor: Number.isNaN(floatValue) ? 1 : floatValue
+        }
+      }
+      if (
+        key === 'btListenPort' ||
+        key === 'downloadRateLimitKiBps' ||
+        key === 'uploadRateLimitKiBps' ||
+        key === 'streamReadaheadMinBytes' ||
+        key === 'streamReadaheadMaxBytes' ||
+        key === 'streamPreheatHeadPieces' ||
+        key === 'streamPreheatTailPieces' ||
+        key === 'streamBoostWindowPieces'
+      ) {
         const numericValue = Number.parseInt(value, 10)
         return {
           ...current,

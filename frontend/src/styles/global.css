@@ -331,6 +331,8 @@ button {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+@media (max-width: 1024px) {
   .desktop-shell {
     grid-template-columns: 1fr;
   }

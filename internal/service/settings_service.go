@@ -14,6 +14,13 @@ import (
 
 const minimumUploadRateLimitKiBps = 16
 
+var fallbackPublicTrackers = []string{
+	"udp://tracker.opentrackr.org:1337/announce",
+	"udp://open.stealth.si:80/announce",
+	"udp://tracker.torrent.eu.org:451/announce",
+	"https://tracker.opentrackr.org/announce",
+}
+
 type SettingsService struct {
 	settingsFile string
 
@@ -98,16 +105,42 @@ func normalizeSettings(settings config.ApplicationSettings) config.ApplicationSe
 	settings.TorrentDataDir = strings.TrimSpace(settings.TorrentDataDir)
 	settings.LogDir = strings.TrimSpace(settings.LogDir)
 	settings.StreamBaseURL = strings.TrimSpace(settings.StreamBaseURL)
+	settings.MetadataProxyURL = strings.TrimSpace(settings.MetadataProxyURL)
+	settings.MetadataFallbackSources = normalizeMetadataFallbackSourceList(settings.MetadataFallbackSources)
 	settings.AutoCleanupPolicy = strings.TrimSpace(settings.AutoCleanupPolicy)
 	if settings.AutoCleanupPolicy == "" {
 		settings.AutoCleanupPolicy = "manual"
 	}
 	settings.PublicTrackers = normalizeTrackerList(settings.PublicTrackers)
+	if len(settings.PublicTrackers) == 0 {
+		settings.PublicTrackers = append([]string(nil), fallbackPublicTrackers...)
+	}
 	if settings.UploadRateLimitKiBps <= 0 {
 		settings.UploadRateLimitKiBps = minimumUploadRateLimitKiBps
 	}
-	if settings.BTListenPort < 0 {
-		settings.BTListenPort = 0
+	if settings.StreamReadaheadMinBytes <= 0 {
+		settings.StreamReadaheadMinBytes = 2 << 20
+	}
+	if settings.StreamReadaheadMaxBytes <= 0 {
+		settings.StreamReadaheadMaxBytes = 16 << 20
+	}
+	if settings.StreamReadaheadMaxBytes < settings.StreamReadaheadMinBytes {
+		settings.StreamReadaheadMaxBytes = settings.StreamReadaheadMinBytes
+	}
+	if settings.StreamPreheatHeadPieces <= 0 {
+		settings.StreamPreheatHeadPieces = 8
+	}
+	if settings.StreamPreheatTailPieces <= 0 {
+		settings.StreamPreheatTailPieces = 8
+	}
+	if settings.StreamSeekGapFactor <= 0 {
+		settings.StreamSeekGapFactor = 1.0
+	}
+	if settings.StreamBoostWindowPieces <= 0 {
+		settings.StreamBoostWindowPieces = 12
+	}
+	if settings.BTListenPort <= 0 {
+		settings.BTListenPort = 51413
 	}
 	return settings
 }
@@ -119,11 +152,18 @@ func validateSettings(settings config.ApplicationSettings) error {
 	if settings.LogDir == "" {
 		return fmt.Errorf("logDir 不能为空")
 	}
-	if settings.StreamBaseURL == "" {
-		return fmt.Errorf("streamBaseUrl 不能为空")
+	if settings.MetadataProxyEnabled && settings.MetadataProxyURL == "" {
+		return fmt.Errorf("metadataProxyEnabled=true 时 metadataProxyUrl 不能为空")
 	}
-	if settings.BTListenPort < 0 || settings.BTListenPort > 65535 {
-		return fmt.Errorf("btListenPort 必须在 0-65535 之间")
+	if settings.MetadataProxyEnabled {
+		if !strings.HasPrefix(settings.MetadataProxyURL, "http://") && !strings.HasPrefix(settings.MetadataProxyURL, "https://") {
+			return fmt.Errorf("metadataProxyUrl 必须以 http:// 或 https:// 开头")
+		}
+	}
+	for _, source := range settings.MetadataFallbackSources {
+		if !strings.HasPrefix(source, "http://") && !strings.HasPrefix(source, "https://") {
+			return fmt.Errorf("metadataFallbackSources 仅支持 http/https: %s", source)
+		}
 	}
 	if settings.DownloadRateLimitKiBps < 0 {
 		return fmt.Errorf("downloadRateLimitKiBps 不能小于 0")
@@ -131,12 +171,45 @@ func validateSettings(settings config.ApplicationSettings) error {
 	if settings.UploadRateLimitKiBps < minimumUploadRateLimitKiBps {
 		return fmt.Errorf("uploadRateLimitKiBps 不能小于 %d", minimumUploadRateLimitKiBps)
 	}
-	switch settings.AutoCleanupPolicy {
-	case "manual", "onSessionDelete":
-	default:
-		return fmt.Errorf("autoCleanupPolicy 不支持: %s", settings.AutoCleanupPolicy)
+	if settings.StreamReadaheadMinBytes <= 0 {
+		return fmt.Errorf("streamReadaheadMinBytes 必须大于 0")
+	}
+	if settings.StreamReadaheadMaxBytes < settings.StreamReadaheadMinBytes {
+		return fmt.Errorf("streamReadaheadMaxBytes 不能小于 streamReadaheadMinBytes")
+	}
+	if settings.StreamPreheatHeadPieces <= 0 {
+		return fmt.Errorf("streamPreheatHeadPieces 必须大于 0")
+	}
+	if settings.StreamPreheatTailPieces <= 0 {
+		return fmt.Errorf("streamPreheatTailPieces 必须大于 0")
+	}
+	if settings.StreamSeekGapFactor <= 0 {
+		return fmt.Errorf("streamSeekGapFactor 必须大于 0")
+	}
+	if settings.StreamBoostWindowPieces <= 0 {
+		return fmt.Errorf("streamBoostWindowPieces 必须大于 0")
 	}
 	return nil
+}
+
+func normalizeMetadataFallbackSourceList(sources []string) []string {
+	seen := make(map[string]struct{})
+	normalized := make([]string, 0, len(sources))
+	for _, source := range sources {
+		candidate := strings.TrimSpace(source)
+		if candidate == "" {
+			continue
+		}
+		if !strings.HasPrefix(candidate, "http://") && !strings.HasPrefix(candidate, "https://") {
+			continue
+		}
+		if _, exists := seen[candidate]; exists {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		normalized = append(normalized, candidate)
+	}
+	return normalized
 }
 
 func normalizeTrackerList(trackers []string) []string {

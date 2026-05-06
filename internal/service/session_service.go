@@ -66,6 +66,30 @@ func (service *SessionService) StopSession(id string) error {
 	return service.runtimeManager.stopSession(id)
 }
 
+func (service *SessionService) PauseSession(id string) error {
+	if _, exists := service.sessionRepository.FindByID(id); !exists {
+		return fmt.Errorf("session %s 不存在", id)
+	}
+	return service.runtimeManager.pauseSession(id)
+}
+
+func (service *SessionService) ResumeSession(id string) error {
+	if _, exists := service.sessionRepository.FindByID(id); !exists {
+		return fmt.Errorf("session %s 不存在", id)
+	}
+	return service.runtimeManager.resumeSession(id)
+}
+
+func (service *SessionService) RecoverSessionsOnStartup() {
+	sessions := service.sessionRepository.FindAll()
+	for _, session := range sessions {
+		if session.ID == "" || session.MagnetURI == "" {
+			continue
+		}
+		service.runtimeManager.recoverSession(session)
+	}
+}
+
 func (service *SessionService) DeleteSession(id string) error {
 	if _, exists := service.sessionRepository.FindByID(id); !exists {
 		return fmt.Errorf("session %s 不存在", id)

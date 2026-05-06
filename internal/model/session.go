@@ -55,6 +55,7 @@ type SessionDownloadState string
 const (
 	SessionDownloadStateQueued      SessionDownloadState = "QUEUED"
 	SessionDownloadStateDownloading SessionDownloadState = "DOWNLOADING"
+	SessionDownloadStatePaused      SessionDownloadState = "PAUSED"
 	SessionDownloadStateCompleted   SessionDownloadState = "COMPLETED"
 	SessionDownloadStateError       SessionDownloadState = "ERROR"
 )

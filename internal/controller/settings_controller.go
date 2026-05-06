@@ -10,10 +10,11 @@ import (
 
 type SettingsController struct {
 	settingsService *service.SettingsService
+	runtimeManager  *service.TorrentRuntimeManager
 }
 
-func NewSettingsController(settingsService *service.SettingsService) *SettingsController {
-	return &SettingsController{settingsService: settingsService}
+func NewSettingsController(settingsService *service.SettingsService, runtimeManager *service.TorrentRuntimeManager) *SettingsController {
+	return &SettingsController{settingsService: settingsService, runtimeManager: runtimeManager}
 }
 
 func (controller *SettingsController) GetSettings(w http.ResponseWriter, _ *http.Request) {
@@ -32,5 +33,6 @@ func (controller *SettingsController) UpdateSettings(w http.ResponseWriter, r *h
 		writeJSON(w, http.StatusBadRequest, common.ErrorResponse(err.Error()))
 		return
 	}
+	controller.runtimeManager.ApplySettings(updated)
 	writeJSON(w, http.StatusOK, common.SuccessResponse(updated))
 }

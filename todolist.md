@@ -1,125 +1,201 @@
-# BTDown_MA 当前计划与进度（2026-04-30）
+# BTDown_MA 当前计划与进度（2026-05-01）
 
-## 一、当前总体阶段判断
+## 1. 文档定位
 
-项目已经完成「桌面应用骨架 + 后端主链路雏形 + 基础流媒体通路」，当前整体处于 **Phase 2 与 Phase 3 之间**：
-- Phase 0（骨架）大部分已完成
-- Phase 1（下载引擎 MVP）主流程已接通，但会话控制能力未闭环
-- Phase 2（HTTP Range 流媒体壳子）核心能力已落地
-- Phase 3（P2P 数据源替换）核心能力已落地
-- Phase 4+（播放器联动、调度增强、观测与产品化）尚未进入实做
+本文件是当前仓库的**权威进度快照**，负责回答三件事：
+
+1. 当前项目做到哪一步了。
+2. 当前最关键的缺口是什么。
+3. 接下来应该先做什么。
+
+如果只想快速了解项目状态，优先阅读本文件。
+
+关联文档：
+
+- 原始总体方案与历史基线：`docs/archive/bt-streaming-mvp-todolist.md`
+- 下载与边下边播问题分析：`docs/download-speed-analysis-plan.md`
+- 同类开源项目调研：`docs/open-source-streaming-performance-research.md`
+- 面向本项目的执行路线图：`docs/streaming-execution-roadmap.md`
 
 ---
 
-## 二、对照原计划的阶段进度
+## 2. 当前总体判断
+
+项目已经完成：
+
+- 桌面应用骨架
+- BT 下载主链路
+- 本地 HTTP Range 流媒体通路
+- `selectedFile.NewReader()` 的 P2P 数据源替换
+- 基础可观测与设置读写
+
+当前整体位置更接近：
+
+- **已完成“可播放的流式 MVP”**
+- **尚未完成“可稳定播放、seek 快、可高质量诊断”的流式系统**
+
+一句话总结：
+
+当前不是“从 0 到 1”的阶段，而是“从能播到播得稳、播得快”的阶段。
+
+---
+
+## 3. 阶段进度快照
 
 ## Phase 0：项目骨架
-- [x] Go 后端工程骨架可运行（`cmd/desktop/main.go` + `internal/bootstrap/application.go`）
-- [x] React 前端骨架与页面结构已建立（`frontend/src/pages/desktop/DesktopHomePage.tsx`）
-- [x] Wails Binding 接口雏形已建立（`internal/wails/app_bindings.go` + `frontend/src/shared/runtime/wailsSessionBridge.ts`）
-- [x] 基础配置模型已建立（`internal/config/application_config.go`）
-- [x] 日志与配置管理已完整（播放器路径、自动清理与设置读写已落地）
-- [ ] AI CLI 扩展位未建立独立模块（仅计划层提及）
+
+- [x] Go 后端骨架可运行
+- [x] React/Wails 基础结构已建立
+- [x] Wails Binding 接口已接通
+- [x] 基础配置模型已建立
+- [x] 设置读写与日志目录已落地
+- [ ] AI CLI 扩展位仍未独立建模
+
+状态：**85%**
+
+## Phase 1：下载引擎 MVP
+
+- [x] `AddMagnet -> Wait GotInfo -> 选主文件 -> Download` 主流程已实现
+- [x] metadata 超时与重试机制已实现
+- [x] peer、速度、下载字节等指标刷新已实现
+- [x] 会话创建、查询、停止、清理等生命周期主链路已接通
+- [ ] “完整落盘验证链路”仍缺少系统性验证
 
 状态：**80%**
 
-## Phase 1：底层下载引擎 MVP
-- [x] `AddMagnet -> Wait GotInfo -> 选主文件 -> Download` 主流程已实现（`internal/service/torrent_runtime_manager.go`）
-- [x] metadata 超时控制已实现（`metadataResolveTimeout`）
-- [x] 指标刷新机制已实现（peer、速度、下载字节）
-- [x] 会话创建/查询能力已通过 HTTP + Binding 暴露（`session_controller.go` / `app_bindings.go`）
-- [x] 会话停止、清理等生命周期能力已实现
-- [ ] “完整落盘验证链路”未看到自动化验证
-
-状态：**75%**
-
 ## Phase 2：本地 HTTP 流媒体壳子
-- [x] 基于 HTTP 服务暴露 `/api/v1/streams/:sessionId`（`internal/stream/http_stream_server.go`）
-- [x] 使用 `http.ServeContent` 支持 Range/206（`internal/controller/stream_controller.go`）
-- [x] 多播放器 Range 行为日志验证已落地
+
+- [x] 已暴露 `/api/v1/streams/:sessionId`
+- [x] 已使用 `http.ServeContent` 支持 `Range/206`
+- [x] 已记录播放器 `Range` 行为日志
 - [ ] UI 对 stream URL 与播放状态联动仍偏展示层
 
-状态：**60%**
+状态：**70%**
 
-## Phase 3：P2P 数据源替换本地文件
-- [x] Stream 数据源已使用 `selectedFile.NewReader()`（`torrent_runtime_manager.go`）
-- [x] 主文件识别策略已实现（扩展名优先 + 最大文件兜底，`session_file_selection.go`）
-- [x] 未完整下载即可读取的链路已实现（reader 阻塞读取 + responsive + readahead）
-- [x] 状态机已同步到会话模型（`session_state_machine.go` + `session.go`）
-- [ ] 多文件复杂选择策略与 UI 选择能力未实现（当前默认自动选择）
+## Phase 3：P2P 数据源替换
+
+- [x] Stream 数据源已使用 `selectedFile.NewReader()`
+- [x] 主文件自动识别已实现
+- [x] `SetResponsive()` 与 `SetReadahead(...)` 已启用
+- [x] 头尾预热、boost window、seek gap 检测等雏形已存在
+- [ ] 多文件复杂选择策略与 UI 选择能力未实现
 
 状态：**85%**
 
 ## Phase 4：外部播放器联动
-- [x] 播放器路径配置与持久化已实现（设置页已接真实配置读写）
-- [ ] 一键启动外部播放器未实现（后端仅有 URL 构建）
-- [ ] 启动失败诊断与兜底策略未实现
-- [ ] 复制 stream URL 快捷能力未实现
 
-状态：**10%（仅结构预留）**
+- [x] 播放器路径配置与持久化已实现
+- [ ] 一键启动外部播放器未完成闭环
+- [ ] 启动失败诊断与兜底策略未完成
+- [ ] 复制 stream URL 快捷能力未完成
 
-## Phase 5：优先级调度器
-- [x] 文件高优先级 + 头尾预热已实现（`SetPriority` + `DownloadPieces`）
-- [ ] 滑动窗口策略未实现
-- [ ] Seek 抢占策略未实现
-- [ ] `SubscribePieceStateChanges()` 事件驱动未实现
+状态：**20%**
 
-状态：**30%**
+## Phase 5：请求驱动调度器
+
+- [x] 文件级高优先级下载已实现
+- [x] 头尾预热已实现
+- [x] 范围请求后的窗口提权雏形已实现
+- [ ] 第一阶段主任务：把 Range 提权从“请求后补偿”前移到“请求开始即触发”
+- [ ] 当前阶段只做轻量热点窗口提权，不在本阶段重写完整调度器
+- [ ] 真正的滑动窗口维护未完成
+- [ ] seek 抢占未完成
+- [ ] `SubscribePieceStateChanges()` 事件驱动未接入
+- [ ] 还未升级到 time-critical / deadline 驱动调度
+
+状态：**35%**
 
 ## Phase 6：观测与性能
-- [ ] pprof 未接入
-- [x] metadata 慢因诊断、peer 计数、下载速度、useful bytes 增量与 Range 响应耗时已打点并展示
-- [x] BT 网络基础诊断已接入（原始/追加 tracker、torrent public/private、监听端口、DHT/UDP/入站连接）
-- [x] 深度健康检测已接入（快速/标准/深度窗口、置信度、证据列表、四档可用性）
-- [x] 第一帧时间 / seek 恢复时间 / 缓冲命中率已打点
-- [ ] 慢节点治理与 deadline 策略未实现
 
-状态：**70%**
+- [x] metadata 慢因诊断、peer 计数、下载速度、useful bytes 增量已打点
+- [x] Range 响应耗时、首帧时间、seek 恢复时间、buffer hit ratio 已打点
+- [x] BT 网络基础诊断已接入
+- [x] 深度健康检测已接入
+- [ ] `pprof` 未接入
+- [ ] 慢 peer 治理与关键块 deadline 策略未实现
+- [ ] 会话观测与持久化尚未分层
 
-## Phase 7：Windows 产品化与扩展预留
+状态：**72%**
+
+## Phase 7：产品化与扩展预留
+
 - [x] 设置页已接真实后端配置
-- [ ] 会话清理策略（释放 torrent/reader/订阅）未完整实现
+- [ ] 会话资源释放与恢复边界仍需进一步打磨
 - [ ] 集成/回归测试体系未建立
 - [ ] 打包分发方案未落地
 - [ ] 诊断导出与 AI CLI 扩展未实现
 
-状态：**10%（页面占位）**
+状态：**20%**
 
 ---
 
-## 三、当前代码已具备的关键能力
+## 4. 当前代码已经具备的关键能力
 
-- [x] 会话创建与列表查询
+- [x] 会话创建、列表查询、停止、清理主链路
 - [x] Magnet 加载、metadata 等待、主文件选择
 - [x] 流媒体 URL 构建与 HTTP Range 拉流
-- [x] 基础会话状态机与指标刷新
-- [x] 前后端基础连接（HTTP + Wails Bridge 双路径）
+- [x] 基础 session 状态机与健康诊断
+- [x] 首帧、seek 恢复、buffer hit ratio 等关键观测指标
+- [x] 设置页与后端真实配置接口
 
 ---
 
-## 四、当前最关键缺口
+## 5. 当前最关键缺口
 
-- [ ] 会话生命周期闭环：停止、清理、资源释放策略
-- [ ] 外部播放器真实联动（路径配置、启动、失败可观测）
-- [ ] 调度器从“预热”升级到“请求驱动窗口 + seek 抢占”
-- [ ] 观测体系（pprof + 首播/seek 指标）
-- [x] 前端设置页从占位数据切换为真实配置读写
+当前最关键缺口按优先级排序如下：
 
----
-
-## 五、下一阶段执行 Todo（建议按顺序）
-
-- [x] 1. 完成会话控制闭环：`StopSession`、`CleanupSession`、资源安全释放
-- [ ] 2. 完成外部播放器最小可用链路：路径配置 + 一键启动 + 错误提示
-- [ ] 3. 实现复制 stream URL 能力，作为播放器兼容兜底
-- [ ] 4. 实现请求驱动调度 V1：滑动窗口 + seek 抢占
-- [x] 5. 增加关键观测指标：首播时间、seek恢复时间、metadata耗时
-- [x] 6. 将设置页接入后端真实配置接口，替换当前占位值
-- [ ] 7. 为主流程补最小集成测试（创建会话 -> 获取流 -> 状态变化）
+1. 第一阶段仍未完成“Range 请求开始即提权”，请求驱动调度仍停留在“请求后补偿”。
+2. `SubscribePieceStateChanges()` 尚未接入，调度器仍缺少事件驱动闭环。
+3. 播放窗口、预读窗口、seek 抢占仍未形成完整策略。
+4. 高频观测更新与 session 持久化之间还没有清晰分层。
+5. 设置更新不一定真正作用到底层 `torrent.Client`。
+6. 外部播放器联动仍未完成最小可用闭环。
 
 ---
 
-- [x] 可观测总览已接入管理界面（会话总数、状态分布、吞吐与最近流访问）
+## 6. 当前推荐执行顺序
 
-本文件依据当前仓库代码与 `docs/bt-streaming-mvp-todolist.md` 交叉整理，属于“当前实现快照”。
-后续每完成一个里程碑，建议同步更新本文件，避免计划与代码状态脱节。
+与旧版“先补播放器再补调度”不同，当前推荐顺序已经调整为：
+
+- [ ] 1. Phase A：先完成第一阶段最小闭环——`ServeContent(...)` 前按 Range 触发热点 piece 提权
+- [ ] 2. Phase B：接入 `SubscribePieceStateChanges()`，建立事件驱动调度闭环
+- [ ] 3. Phase C：补齐播放窗口、预读窗口与 seek 抢占
+- [ ] 4. Phase D：治理高频观测与 session 持久化的分层策略
+- [ ] 5. Phase E：补慢 peer 治理、关键块补救与更强网络诊断
+- [ ] 6. Phase F：将底层能力收敛成稳定的播放策略与产品设置
+- [ ] 7. 完成外部播放器最小可用闭环：路径配置 + 一键启动 + 错误提示 + URL 兜底
+- [ ] 8. 为主流程补最小集成/回归验证
+
+说明：
+
+- Phase A 当前只做“请求开始即提权”的最小改造，保留现有响应后观测链路不动。
+- 事件驱动、完整滑动窗口、持久化治理都明确放在后续阶段，不与第一阶段混做。
+- 外部播放器联动仍然重要，但在当前阶段，它不应优先于核心流式调度器。
+- 先把播放热路径做对，再补播放器闭环，收益更大。
+
+---
+
+## 7. 当前统一指标口径
+
+后续所有优化统一围绕以下指标判断：
+
+1. metadata 获取耗时
+2. 第一帧时间
+3. seek 恢复时间
+4. 平均 Range 响应耗时
+5. buffer hit ratio
+6. useful bytes 增量
+7. ActivePeers / TotalPeers
+
+如果某次改动不能改善上述至少一项关键指标，且没有显著增强诊断能力，就不应轻易进入下一阶段。
+
+---
+
+## 8. 维护原则
+
+后续维护时遵循以下规则：
+
+1. 本文件始终作为“当前状态权威快照”
+2. 阶段推进顺序如发生变化，优先更新本文件和 `docs/streaming-execution-roadmap.md`
+3. 历史基线和历史调研不承担当前状态职责
+4. 每完成一个里程碑，都应同步更新本文件，避免计划与实现再次脱节

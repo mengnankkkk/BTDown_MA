@@ -11,4 +11,12 @@ export interface AppSettings {
   downloadRateLimitKiBps: number
   uploadRateLimitKiBps: number
   enablePortForwarding: boolean
+  streamDynamicReadaheadEnabled: boolean
+  streamReadaheadMinBytes: number
+  streamReadaheadMaxBytes: number
+  streamPreheatHeadPieces: number
+  streamPreheatTailPieces: number
+  streamSeekGapFactor: number
+  streamBoostWindowPieces: number
+  streamDeprioritizeOldWindow: boolean
 }

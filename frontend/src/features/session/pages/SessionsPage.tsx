@@ -4,7 +4,17 @@ import { useSessionDashboard } from '../hooks/useSessionDashboard'
 import { StatusBanner } from '../../../shared/components/feedback/StatusBanner'
 
 export function SessionsPage() {
-  const { sessions, selectedSession, loading, errorMessage, stopCurrentSession, cleanupCurrentSession, selectSession } = useSessionDashboard()
+  const {
+    sessions,
+    selectedSession,
+    loading,
+    errorMessage,
+    stopCurrentSession,
+    pauseCurrentSession,
+    resumeCurrentSession,
+    cleanupCurrentSession,
+    selectSession
+  } = useSessionDashboard()
 
   return (
     <section className="page-section">
@@ -23,6 +33,8 @@ export function SessionsPage() {
         <SessionDetailPanel
           session={selectedSession}
           onStopSession={stopCurrentSession}
+          onPauseSession={pauseCurrentSession}
+          onResumeSession={resumeCurrentSession}
           onCleanupSession={cleanupCurrentSession}
         />
       </div>

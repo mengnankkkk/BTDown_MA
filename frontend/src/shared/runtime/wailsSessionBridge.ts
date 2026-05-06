@@ -10,6 +10,8 @@ interface WailsSessionBridge {
   UpdateSettings?: (payload: AppSettings) => Promise<AppSettings>
   GetObservabilityOverview?: () => Promise<ObservabilityOverview>
   StopSession?: (sessionId: string) => Promise<void>
+  PauseSession?: (sessionId: string) => Promise<void>
+  ResumeSession?: (sessionId: string) => Promise<void>
   CleanupSession?: (sessionId: string) => Promise<void>
 }
 

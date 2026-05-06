@@ -51,6 +51,30 @@ export async function stopSession(sessionId: string) {
   })
 }
 
+export async function pauseSession(sessionId: string) {
+  const bridge = getWailsSessionBridge()
+  if (bridge?.PauseSession) {
+    await bridge.PauseSession(sessionId)
+    return
+  }
+
+  await requestJSON<ApiResponse<{ status: string }>>(`${getApiBaseUrl()}/api/v1/sessions/${sessionId}/pause`, {
+    method: 'POST'
+  })
+}
+
+export async function resumeSession(sessionId: string) {
+  const bridge = getWailsSessionBridge()
+  if (bridge?.ResumeSession) {
+    await bridge.ResumeSession(sessionId)
+    return
+  }
+
+  await requestJSON<ApiResponse<{ status: string }>>(`${getApiBaseUrl()}/api/v1/sessions/${sessionId}/resume`, {
+    method: 'POST'
+  })
+}
+
 export async function cleanupSession(sessionId: string) {
   const bridge = getWailsSessionBridge()
   if (bridge?.CleanupSession) {

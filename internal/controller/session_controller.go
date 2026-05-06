@@ -51,6 +51,32 @@ func (controller *SessionController) StopSession(w http.ResponseWriter, r *http.
 	writeJSON(w, http.StatusOK, common.SuccessResponse(map[string]string{"status": "stopped"}))
 }
 
+func (controller *SessionController) PauseSession(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimPrefix(strings.TrimSuffix(r.URL.Path, "/pause"), "/api/v1/sessions/")
+	if strings.TrimSpace(sessionID) == "" {
+		writeJSON(w, http.StatusBadRequest, common.ErrorResponse("sessionId 不能为空"))
+		return
+	}
+	if err := controller.sessionService.PauseSession(sessionID); err != nil {
+		writeJSON(w, http.StatusNotFound, common.ErrorResponse(err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, common.SuccessResponse(map[string]string{"status": "paused"}))
+}
+
+func (controller *SessionController) ResumeSession(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimPrefix(strings.TrimSuffix(r.URL.Path, "/resume"), "/api/v1/sessions/")
+	if strings.TrimSpace(sessionID) == "" {
+		writeJSON(w, http.StatusBadRequest, common.ErrorResponse("sessionId 不能为空"))
+		return
+	}
+	if err := controller.sessionService.ResumeSession(sessionID); err != nil {
+		writeJSON(w, http.StatusNotFound, common.ErrorResponse(err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, common.SuccessResponse(map[string]string{"status": "resumed"}))
+}
+
 func (controller *SessionController) DeleteSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := strings.TrimPrefix(r.URL.Path, "/api/v1/sessions/")
 	if strings.TrimSpace(sessionID) == "" {

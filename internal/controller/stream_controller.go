@@ -49,18 +49,29 @@ func (controller *StreamController) Stream(w http.ResponseWriter, r *http.Reques
 	}
 	defer openedStream.Content.Close()
 
+	if controller.runtimeManager != nil {
+		controller.runtimeManager.PrepareRangeDownload(sessionID, rangeHeader)
+	}
+
 	http.ServeContent(writer, r, openedStream.Name, openedStream.ModTime, openedStream.Content)
 	logStreamAccess(startedAt, sessionID, r.Method, rangeHeader, userAgent, writer, controller.streamAccessBuffer, controller.runtimeManager)
 }
 
 type loggedResponseWriter struct {
 	http.ResponseWriter
-	status int
+	status       int
+	bytesWritten int64
 }
 
 func (writer *loggedResponseWriter) WriteHeader(statusCode int) {
 	writer.status = statusCode
 	writer.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (writer *loggedResponseWriter) Write(data []byte) (int, error) {
+	written, err := writer.ResponseWriter.Write(data)
+	writer.bytesWritten += int64(written)
+	return written, err
 }
 
 func (writer *loggedResponseWriter) statusCode() int {
@@ -75,12 +86,13 @@ func logStreamAccess(startedAt time.Time, sessionID, method, rangeHeader, userAg
 	headers := writer.Header()
 	contentRange := headers.Get("Content-Range")
 	log.Printf(
-		"stream access sessionId=%s method=%s range=%q userAgent=%q status=%d contentRange=%q contentLength=%q acceptRanges=%q durationMs=%d",
+		"stream access sessionId=%s method=%s range=%q userAgent=%q status=%d bytesWritten=%d contentRange=%q contentLength=%q acceptRanges=%q durationMs=%d",
 		sessionID,
 		method,
 		rangeHeader,
 		userAgent,
 		writer.statusCode(),
+		writer.bytesWritten,
 		contentRange,
 		headers.Get("Content-Length"),
 		headers.Get("Accept-Ranges"),
@@ -98,6 +110,6 @@ func logStreamAccess(startedAt time.Time, sessionID, method, rangeHeader, userAg
 		})
 	}
 	if runtimeManager != nil && sessionID != "" {
-		runtimeManager.RecordRangeActivity(sessionID, rangeHeader, writer.statusCode(), time.Duration(durationMs)*time.Millisecond)
+		runtimeManager.RecordRangeActivity(sessionID, rangeHeader, writer.statusCode(), writer.bytesWritten, time.Duration(durationMs)*time.Millisecond)
 	}
 }

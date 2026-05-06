@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"fmt"
 	"net/http"
+	"path/filepath"
 
 	"BTDown_MA/internal/config"
 	"BTDown_MA/internal/controller"
@@ -23,20 +24,25 @@ func NewApplication() *Application {
 	settingsService := service.NewSettingsService(applicationConfig.SettingsFile, applicationConfig.Settings)
 	currentSettings := settingsService.GetSettings()
 
-	sessionRepository := impl.NewMemorySessionRepository()
+	sessionFile := filepath.Join(filepath.Dir(applicationConfig.SettingsFile), "sessions.json")
+	sessionRepository, err := impl.NewFileSessionRepository(sessionFile)
+	if err != nil {
+		panic(err)
+	}
 	runtimeManager, err := service.NewTorrentRuntimeManager(sessionRepository, currentSettings)
 	if err != nil {
 		panic(err)
 	}
 	streamService := service.NewStreamService(currentSettings.StreamBaseURL, runtimeManager)
 	sessionService := service.NewSessionService(sessionRepository, streamService, runtimeManager)
+	sessionService.RecoverSessionsOnStartup()
 	streamAccessBuffer := service.NewStreamAccessBuffer()
 	observabilityService := service.NewObservabilityService(sessionService, streamAccessBuffer)
 	playerService := service.NewPlayerService(streamService)
 
 	healthController := controller.NewHealthController()
 	sessionController := controller.NewSessionController(sessionService)
-	settingsController := controller.NewSettingsController(settingsService)
+	settingsController := controller.NewSettingsController(settingsService, runtimeManager)
 	observabilityController := controller.NewObservabilityController(observabilityService)
 	streamController := controller.NewStreamController(streamService, streamAccessBuffer, runtimeManager)
 	streamServer := stream.NewHTTPStreamServer(
@@ -51,7 +57,7 @@ func NewApplication() *Application {
 	return &Application{
 		config:       applicationConfig,
 		httpServer:   streamServer.BuildServer(),
-		wailsBinding: wails.NewAppBindings(sessionService, settingsService, observabilityService, playerService),
+		wailsBinding: wails.NewAppBindings(sessionService, settingsService, observabilityService, playerService, runtimeManager),
 	}
 }
 

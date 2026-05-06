@@ -8,6 +8,15 @@ export interface StreamAccessRecord {
   contentRange: string
 }
 
+export interface TrendPoint {
+  at: string
+  rangeRequestCount: number
+  avgRangeDurationMs: number
+  avgSeekRecoveryMs: number
+  avgBufferHitRatio: number
+  activeSessions: number
+}
+
 export interface ObservabilityOverview {
   sessionCount: number
   statusCounts: Record<string, number>
@@ -17,4 +26,5 @@ export interface ObservabilityOverview {
   averageSeekRecoveryMs: number
   averageBufferHitRatio: number
   recentStreamAccesses: StreamAccessRecord[]
+  trend5m: TrendPoint[]
 }

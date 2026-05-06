@@ -14,6 +14,8 @@ export function DashboardOverviewPage() {
     errorMessage,
     submitSession,
     stopCurrentSession,
+    pauseCurrentSession,
+    resumeCurrentSession,
     cleanupCurrentSession,
     selectSession
   } = useSessionDashboard()
@@ -57,13 +59,13 @@ export function DashboardOverviewPage() {
           </div>
         </div>
         <div className="panel-subsection">
-          <strong>最近流访问</strong>
-          {overview.recentStreamAccesses.length === 0 ? (
-            <p className="session-field">暂无流访问记录</p>
+          <strong>最近 5 分钟趋势</strong>
+          {overview.trend5m.length === 0 ? (
+            <p className="session-field">暂无趋势数据</p>
           ) : (
-            overview.recentStreamAccesses.slice(-5).reverse().map((record) => (
-              <p key={`${record.at}-${record.sessionId}-${record.durationMs}`} className="session-field">
-                {record.at} | {record.sessionId} | {record.method} | {record.status} | {record.range || '无 Range'} | {record.durationMs}ms
+            overview.trend5m.map((point) => (
+              <p key={point.at} className="session-field">
+                {point.at} | 请求:{point.rangeRequestCount} | 平均耗时:{point.avgRangeDurationMs}ms | 平均 Seek 恢复:{point.avgSeekRecoveryMs}ms | 平均缓冲命中:{Math.round(point.avgBufferHitRatio * 100)}% | 活跃会话:{point.activeSessions}
               </p>
             ))
           )}
@@ -80,6 +82,8 @@ export function DashboardOverviewPage() {
         <SessionDetailPanel
           session={selectedSession}
           onStopSession={stopCurrentSession}
+          onPauseSession={pauseCurrentSession}
+          onResumeSession={resumeCurrentSession}
           onCleanupSession={cleanupCurrentSession}
         />
       </div>
