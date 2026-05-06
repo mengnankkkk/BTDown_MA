@@ -1,26 +1,22 @@
-import { SessionCoreMetricsPanel } from '../components/SessionCoreMetricsPanel'
+import { SessionDetailPanel } from '../components/SessionDetailPanel'
 import { SessionWorkspace } from '../components/SessionWorkspace'
 import { useSessionDashboard } from '../hooks/useSessionDashboard'
 import { StatusBanner } from '../../../shared/components/feedback/StatusBanner'
 
-export function SessionsPage() {
+export function SessionMonitoringPage() {
   const {
     sessions,
     selectedSession,
     loading,
     errorMessage,
-    stopCurrentSession,
-    pauseCurrentSession,
-    resumeCurrentSession,
-    cleanupCurrentSession,
     selectSession
   } = useSessionDashboard()
 
   return (
     <section className="page-section">
       <div className="panel-header">
-        <h2>会话管理</h2>
-        <span>只保留实时进度、下载速度和预估完成时间</span>
+        <h2>详细监控</h2>
+        <span>集中查看下载、流媒体、网络与慢因诊断的完整参数</span>
       </div>
       <StatusBanner message={errorMessage} />
       <div className="dashboard-grid">
@@ -30,13 +26,7 @@ export function SessionsPage() {
           selectedSession={selectedSession}
           onSelectSession={selectSession}
         />
-        <SessionCoreMetricsPanel
-          session={selectedSession}
-          onStopSession={stopCurrentSession}
-          onPauseSession={pauseCurrentSession}
-          onResumeSession={resumeCurrentSession}
-          onCleanupSession={cleanupCurrentSession}
-        />
+        <SessionDetailPanel session={selectedSession} />
       </div>
     </section>
   )

@@ -25,6 +25,8 @@ export interface ObservabilityOverview {
   averageFirstFrameLatencyMs: number
   averageSeekRecoveryMs: number
   averageBufferHitRatio: number
+  averageRecoverySuccessRate: number
+  recoveryLatencyDistribution: Record<string, number>
   recentStreamAccesses: StreamAccessRecord[]
   trend5m: TrendPoint[]
 }

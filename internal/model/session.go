@@ -36,6 +36,12 @@ type Session struct {
 	FirstFrameLatencyMs         int64
 	SeekRecoveryMs              int64
 	BufferHitRatio              float64
+	WindowRecoveryCount         int64
+	LastWindowRecoveryAt        time.Time
+	LastWindowRecoveryReason    string
+	PeerRecoveryCount           int64
+	LastPeerRecoveryAt          time.Time
+	LastPeerRecoveryReason      string
 	LastError                   string
 	CreatedAt                   time.Time
 	UpdatedAt                   time.Time

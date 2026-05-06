@@ -30,16 +30,14 @@ func (repository *MemorySessionRepository) UpdateByID(id string, update func(*mo
 	repository.mutex.Lock()
 	defer repository.mutex.Unlock()
 
-	session, exists := repository.sessions[id]
-	if !exists {
-		return model.Session{}, fmt.Errorf("session %s 不存在", id)
-	}
-	if err := update(&session); err != nil {
-		return model.Session{}, err
-	}
+	return repository.updateLocked(id, update)
+}
 
-	repository.sessions[id] = session
-	return session, nil
+func (repository *MemorySessionRepository) UpdateByIDTransient(id string, update func(*model.Session) error) (model.Session, error) {
+	repository.mutex.Lock()
+	defer repository.mutex.Unlock()
+
+	return repository.updateLocked(id, update)
 }
 
 func (repository *MemorySessionRepository) FindAll() []model.Session {
@@ -71,4 +69,25 @@ func (repository *MemorySessionRepository) DeleteByID(id string) error {
 	}
 	delete(repository.sessions, id)
 	return nil
+}
+
+func (repository *MemorySessionRepository) Flush() error {
+	return nil
+}
+
+func (repository *MemorySessionRepository) Close() error {
+	return nil
+}
+
+func (repository *MemorySessionRepository) updateLocked(id string, update func(*model.Session) error) (model.Session, error) {
+	session, exists := repository.sessions[id]
+	if !exists {
+		return model.Session{}, fmt.Errorf("session %s 不存在", id)
+	}
+	if err := update(&session); err != nil {
+		return model.Session{}, err
+	}
+
+	repository.sessions[id] = session
+	return session, nil
 }

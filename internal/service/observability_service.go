@@ -30,6 +30,9 @@ func (service *ObservabilityService) GetOverview() vo.ObservabilityOverviewRespo
 	seekRecoveryCount := 0
 	totalBufferHitRatio := 0.0
 	bufferHitRatioCount := 0
+	totalRecoverySuccessRate := 0.0
+	recoverySuccessCount := 0
+	recoveryLatencyDistribution := map[string]int64{"lt1s": 0, "1to3s": 0, "3to8s": 0, "gt8s": 0}
 
 	for _, session := range sessions {
 		statusCounts[string(session.Status)]++
@@ -47,6 +50,24 @@ func (service *ObservabilityService) GetOverview() vo.ObservabilityOverviewRespo
 			totalBufferHitRatio += session.BufferHitRatio
 			bufferHitRatioCount++
 		}
+		if session.WindowRecoveryCount > 0 {
+			recoverySuccessCount++
+			if session.SeekRecoveryMs > 0 && session.SeekRecoveryMs <= 3000 {
+				totalRecoverySuccessRate += 1
+			} else if session.SeekRecoveryMs > 0 && session.SeekRecoveryMs <= 8000 {
+				totalRecoverySuccessRate += 0.5
+			}
+			switch {
+			case session.SeekRecoveryMs > 0 && session.SeekRecoveryMs < 1000:
+				recoveryLatencyDistribution["lt1s"] += 1
+			case session.SeekRecoveryMs >= 1000 && session.SeekRecoveryMs < 3000:
+				recoveryLatencyDistribution["1to3s"] += 1
+			case session.SeekRecoveryMs >= 3000 && session.SeekRecoveryMs < 8000:
+				recoveryLatencyDistribution["3to8s"] += 1
+			default:
+				recoveryLatencyDistribution["gt8s"] += 1
+			}
+		}
 	}
 
 	recentRecords := service.streamAccessBuffer.ListRecent()
@@ -60,6 +81,8 @@ func (service *ObservabilityService) GetOverview() vo.ObservabilityOverviewRespo
 		AverageFirstFrameLatencyMs:       averageInt64(totalFirstFrameLatency, firstFrameCount),
 		AverageSeekRecoveryMs:            averageInt64(totalSeekRecoveryMs, seekRecoveryCount),
 		AverageBufferHitRatio:            averageFloat64(totalBufferHitRatio, bufferHitRatioCount),
+		AverageRecoverySuccessRate:       averageFloat64(totalRecoverySuccessRate, recoverySuccessCount),
+		RecoveryLatencyDistribution:      recoveryLatencyDistribution,
 		RecentStreamAccesses:             toStreamAccessResponseList(recentRecords),
 		Trend5m:                          trend5m,
 	}

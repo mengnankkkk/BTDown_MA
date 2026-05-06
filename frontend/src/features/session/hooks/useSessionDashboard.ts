@@ -16,6 +16,8 @@ export function useSessionDashboard() {
     averageFirstFrameLatencyMs: 0,
     averageSeekRecoveryMs: 0,
     averageBufferHitRatio: 0,
+    averageRecoverySuccessRate: 0,
+    recoveryLatencyDistribution: { lt1s: 0, '1to3s': 0, '3to8s': 0, gt8s: 0 },
     recentStreamAccesses: [],
     trend5m: []
   })
@@ -204,6 +206,14 @@ function enrichSession(session: SessionItem): SessionItem {
       firstFrameLatencyMs: 0,
       seekRecoveryMs: 0,
       bufferHitRatio: 0,
+      windowRecoveryCount: 0,
+      lastWindowRecoveryAt: '',
+      lastWindowRecoveryReason: '',
+      peerRecoveryCount: 0,
+      lastPeerRecoveryAt: '',
+      lastPeerRecoveryReason: '',
+      recoveryLatencyBuckets: { lt1s: 0, '1to3s': 0, '3to8s': 0, gt8s: 0 },
+      recoverySuccessRate: 0,
       downloadSpeedText: '0 B/s',
       streamStateText: '等待流媒体状态',
       deadTorrentStateText: '等待死种检测'

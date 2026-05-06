@@ -97,5 +97,11 @@ func (service *SessionService) DeleteSession(id string) error {
 	if err := service.runtimeManager.cleanupSession(id); err != nil {
 		return err
 	}
-	return service.sessionRepository.DeleteByID(id)
+	if err := service.sessionRepository.Flush(); err != nil {
+		return err
+	}
+	if err := service.sessionRepository.DeleteByID(id); err != nil {
+		return err
+	}
+	return service.sessionRepository.Flush()
 }

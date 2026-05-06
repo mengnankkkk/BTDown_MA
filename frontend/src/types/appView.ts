@@ -1,1 +1,1 @@
-export type AppView = 'dashboard' | 'sessions' | 'settings'
+export type AppView = 'dashboard' | 'sessions' | 'monitoring' | 'settings'

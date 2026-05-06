@@ -48,6 +48,14 @@ func ToSessionResponse(session model.Session) vo.SessionResponse {
 			FirstFrameLatencyMs:         session.FirstFrameLatencyMs,
 			SeekRecoveryMs:              session.SeekRecoveryMs,
 			BufferHitRatio:              session.BufferHitRatio,
+			WindowRecoveryCount:         session.WindowRecoveryCount,
+			LastWindowRecoveryAt:        formatTimestamp(session.LastWindowRecoveryAt),
+			LastWindowRecoveryReason:    session.LastWindowRecoveryReason,
+			PeerRecoveryCount:           session.PeerRecoveryCount,
+			LastPeerRecoveryAt:          formatTimestamp(session.LastPeerRecoveryAt),
+			LastPeerRecoveryReason:      session.LastPeerRecoveryReason,
+			RecoveryLatencyBuckets:      mapRecoveryLatencyBuckets(session),
+			RecoverySuccessRate:         calculateRecoverySuccessRate(session),
 			DownloadSpeedText:           formatBytesPerSecond(session.DownloadSpeedBytesPerSecond),
 			StreamStateText:             formatStreamState(session),
 			DeadTorrentStateText:        formatDeadState(session),
@@ -99,6 +107,43 @@ func calculateDownloadProgress(downloadedBytes, totalBytes int64) float64 {
 		return 0
 	}
 	return float64(downloadedBytes) / float64(totalBytes)
+}
+
+func mapRecoveryLatencyBuckets(session model.Session) map[string]int64 {
+	buckets := map[string]int64{
+		"lt1s": 0,
+		"1to3s": 0,
+		"3to8s": 0,
+		"gt8s": 0,
+	}
+	if session.WindowRecoveryCount <= 0 {
+		return buckets
+	}
+	latency := session.SeekRecoveryMs
+	switch {
+	case latency > 0 && latency < 1000:
+		buckets["lt1s"] = 1
+	case latency >= 1000 && latency < 3000:
+		buckets["1to3s"] = 1
+	case latency >= 3000 && latency < 8000:
+		buckets["3to8s"] = 1
+	default:
+		buckets["gt8s"] = 1
+	}
+	return buckets
+}
+
+func calculateRecoverySuccessRate(session model.Session) float64 {
+	if session.WindowRecoveryCount <= 0 {
+		return 0
+	}
+	if session.SeekRecoveryMs > 0 && session.SeekRecoveryMs <= 3000 {
+		return 1
+	}
+	if session.SeekRecoveryMs > 0 && session.SeekRecoveryMs <= 8000 {
+		return 0.5
+	}
+	return 0
 }
 
 func formatBytesPerSecond(bytesPerSecond int64) string {

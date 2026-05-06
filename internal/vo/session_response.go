@@ -44,6 +44,14 @@ type SessionMetricsResponse struct {
 	FirstFrameLatencyMs         int64   `json:"firstFrameLatencyMs"`
 	SeekRecoveryMs              int64   `json:"seekRecoveryMs"`
 	BufferHitRatio              float64 `json:"bufferHitRatio"`
+	WindowRecoveryCount         int64   `json:"windowRecoveryCount"`
+	LastWindowRecoveryAt        string  `json:"lastWindowRecoveryAt"`
+	LastWindowRecoveryReason    string  `json:"lastWindowRecoveryReason"`
+	PeerRecoveryCount           int64   `json:"peerRecoveryCount"`
+	LastPeerRecoveryAt          string  `json:"lastPeerRecoveryAt"`
+	LastPeerRecoveryReason      string  `json:"lastPeerRecoveryReason"`
+	RecoveryLatencyBuckets      map[string]int64 `json:"recoveryLatencyBuckets"`
+	RecoverySuccessRate         float64 `json:"recoverySuccessRate"`
 	DownloadSpeedText           string  `json:"downloadSpeedText"`
 	StreamStateText             string  `json:"streamStateText"`
 	DeadTorrentStateText        string  `json:"deadTorrentStateText"`

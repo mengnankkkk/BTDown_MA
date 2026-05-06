@@ -1,5 +1,5 @@
 import { SessionCreateForm } from '../../session/components/SessionCreateForm'
-import { SessionDetailPanel } from '../../session/components/SessionDetailPanel'
+import { SessionCoreMetricsPanel } from '../../session/components/SessionCoreMetricsPanel'
 import { SessionWorkspace } from '../../session/components/SessionWorkspace'
 import { useSessionDashboard } from '../../session/hooks/useSessionDashboard'
 import { StatusBanner } from '../../../shared/components/feedback/StatusBanner'
@@ -57,6 +57,16 @@ export function DashboardOverviewPage() {
             <strong>平均缓冲命中率</strong>
             <p>{Math.round(overview.averageBufferHitRatio * 100)}%</p>
           </div>
+          <div className="detail-item">
+            <strong>补拉成功率</strong>
+            <p>{Math.round(overview.averageRecoverySuccessRate * 100)}%</p>
+          </div>
+          <div className="detail-item">
+            <strong>恢复耗时分布</strong>
+            <p>
+              {'<'}1s:{overview.recoveryLatencyDistribution.lt1s ?? 0} / 1-3s:{overview.recoveryLatencyDistribution['1to3s'] ?? 0} / 3-8s:{overview.recoveryLatencyDistribution['3to8s'] ?? 0} / {'>'}8s:{overview.recoveryLatencyDistribution.gt8s ?? 0}
+            </p>
+          </div>
         </div>
         <div className="panel-subsection">
           <strong>最近 5 分钟趋势</strong>
@@ -79,7 +89,7 @@ export function DashboardOverviewPage() {
           selectedSession={selectedSession}
           onSelectSession={selectSession}
         />
-        <SessionDetailPanel
+        <SessionCoreMetricsPanel
           session={selectedSession}
           onStopSession={stopCurrentSession}
           onPauseSession={pauseCurrentSession}

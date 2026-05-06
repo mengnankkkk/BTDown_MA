@@ -15,7 +15,12 @@ export const navigationItems: NavigationItem[] = [
   {
     key: 'sessions',
     title: '会话',
-    description: '管理下载与播放会话'
+    description: '查看实时进度、速度和预估时间'
+  },
+  {
+    key: 'monitoring',
+    title: '详细监控',
+    description: '查看完整下载与诊断参数'
   },
   {
     key: 'settings',

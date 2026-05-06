@@ -1,12 +1,14 @@
 package bootstrap
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"path/filepath"
 
 	"BTDown_MA/internal/config"
 	"BTDown_MA/internal/controller"
+	"BTDown_MA/internal/repository"
 	"BTDown_MA/internal/repository/impl"
 	"BTDown_MA/internal/service"
 	"BTDown_MA/internal/stream"
@@ -14,9 +16,10 @@ import (
 )
 
 type Application struct {
-	config       config.ApplicationConfig
-	httpServer   *http.Server
-	wailsBinding *wails.AppBindings
+	config            config.ApplicationConfig
+	httpServer        *http.Server
+	wailsBinding      *wails.AppBindings
+	sessionRepository repository.SessionRepository
 }
 
 func NewApplication() *Application {
@@ -55,9 +58,10 @@ func NewApplication() *Application {
 	)
 
 	return &Application{
-		config:       applicationConfig,
-		httpServer:   streamServer.BuildServer(),
-		wailsBinding: wails.NewAppBindings(sessionService, settingsService, observabilityService, playerService, runtimeManager),
+		config:            applicationConfig,
+		httpServer:        streamServer.BuildServer(),
+		wailsBinding:      wails.NewAppBindings(sessionService, settingsService, observabilityService, playerService, runtimeManager),
+		sessionRepository: sessionRepository,
 	}
 }
 
@@ -65,4 +69,13 @@ func (application *Application) Run() error {
 	fmt.Printf("BTDown_MA backend listening on %s\n", application.config.ServerAddress)
 	_ = application.wailsBinding
 	return application.httpServer.ListenAndServe()
+}
+
+func (application *Application) Shutdown(ctx context.Context) error {
+	shutdownErr := application.httpServer.Shutdown(ctx)
+	closeErr := application.sessionRepository.Close()
+	if shutdownErr != nil {
+		return shutdownErr
+	}
+	return closeErr
 }

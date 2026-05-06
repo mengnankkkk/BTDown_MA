@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 import type { AppView } from '../../types/appView'
 import { getRuntimeEnvironment } from '../../shared/runtime/runtimeEnvironment'
 import { DashboardOverviewPage } from '../../features/dashboard/pages/DashboardOverviewPage'
+import { SessionMonitoringPage } from '../../features/session/pages/SessionMonitoringPage'
 import { SessionsPage } from '../../features/session/pages/SessionsPage'
 import { SettingsPage } from '../../features/settings/pages/SettingsPage'
 import { DesktopHeader } from '../../features/shell/components/DesktopHeader'
@@ -39,8 +40,16 @@ function resolveCurrentView(activeView: AppView) {
     case 'sessions':
       return {
         title: '会话管理',
-        subtitle: '聚焦当前会话状态与播放入口',
+        subtitle: '聚焦实时进度、下载速度与预计完成时间',
         content: <SessionsPage />,
+        sessionCount: 0,
+        selectedSessionName: ''
+      }
+    case 'monitoring':
+      return {
+        title: '详细监控',
+        subtitle: '查看完整下载、流媒体、网络与慢因诊断参数',
+        content: <SessionMonitoringPage />,
         sessionCount: 0,
         selectedSessionName: ''
       }

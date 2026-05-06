@@ -44,6 +44,7 @@ const (
 	metadataDNSResolveTimeout    = 3 * time.Second
 	windowAdvanceThrottle        = 150 * time.Millisecond
 	pieceEventIdlePollInterval   = 250 * time.Millisecond
+	pieceStallRecoveryWindow     = 1200 * time.Millisecond
 	defaultPlaybackWindowPieces  = 6
 	defaultPrefetchWindowPieces  = 12
 	defaultRetentionWindowPieces = 4
@@ -56,6 +57,8 @@ type torrentRuntimeManager struct {
 	client             *torrent.Client
 	settings           config.ApplicationSettings
 	metadataHTTPClient *http.Client
+	downloadLimiter    *rate.Limiter
+	uploadLimiter      *rate.Limiter
 
 	mutex    sync.RWMutex
 	runtimes map[string]*sessionRuntime
@@ -100,6 +103,7 @@ type sessionRuntime struct {
 	retentionWindowBegin     int
 	retentionWindowEnd       int
 	windowGeneration         int64
+	windowMovesForward       bool
 	lastPreparedRangeStart   int64
 	hasPreparedRangeStart    bool
 	lastPreparedAt           time.Time
@@ -110,6 +114,8 @@ type sessionRuntime struct {
 	pieceSubscriptionActive  bool
 	lastWindowAdvanceAt      time.Time
 	lastPieceEventAt         time.Time
+	lastPeerRecoveryAt       time.Time
+	lastPeerRecoveryReason   string
 }
 
 type priorityWindowPlan struct {
@@ -124,6 +130,8 @@ type priorityWindowPlan struct {
 	retentionEnd        int
 	previousWindowBegin int
 	previousWindowEnd   int
+	scenario            string
+	movesForward        bool
 	isSeek              bool
 }
 
@@ -144,8 +152,10 @@ func NewTorrentRuntimeManager(sessionRepository repository.SessionRepository, se
 	clientConfig.ListenPort = settings.BTListenPort
 	clientConfig.NoDefaultPortForwarding = !settings.EnablePortForwarding
 	clientConfig.NoUpload = false
-	clientConfig.UploadRateLimiter = buildRateLimiter(settings.UploadRateLimitKiBps)
-	clientConfig.DownloadRateLimiter = buildRateLimiter(settings.DownloadRateLimitKiBps)
+	uploadLimiter := buildRateLimiter(settings.UploadRateLimitKiBps)
+	downloadLimiter := buildRateLimiter(settings.DownloadRateLimitKiBps)
+	clientConfig.UploadRateLimiter = uploadLimiter
+	clientConfig.DownloadRateLimiter = downloadLimiter
 
 	client, err := torrent.NewClient(clientConfig)
 	if err != nil {
@@ -162,15 +172,24 @@ func NewTorrentRuntimeManager(sessionRepository repository.SessionRepository, se
 		client:             client,
 		settings:           settings,
 		metadataHTTPClient: buildMetadataHTTPClient(settings),
+		downloadLimiter:    downloadLimiter,
+		uploadLimiter:      uploadLimiter,
 		runtimes:           make(map[string]*sessionRuntime),
 	}, nil
 }
 
 func (manager *torrentRuntimeManager) ApplySettings(settings config.ApplicationSettings) {
 	manager.mutex.Lock()
+	previous := manager.settings
 	manager.settings = settings
 	manager.metadataHTTPClient = buildMetadataHTTPClient(settings)
+	manager.downloadLimiter = resetRateLimiter(manager.downloadLimiter, settings.DownloadRateLimitKiBps)
+	manager.uploadLimiter = resetRateLimiter(manager.uploadLimiter, settings.UploadRateLimitKiBps)
 	manager.mutex.Unlock()
+
+	if previous.BTListenPort != settings.BTListenPort || previous.EnablePortForwarding != settings.EnablePortForwarding {
+		log.Printf("[runtime-settings] listen port or port forwarding changed but torrent client requires restart to apply: listenPort=%d enablePortForwarding=%t", settings.BTListenPort, settings.EnablePortForwarding)
+	}
 }
 
 func (manager *torrentRuntimeManager) currentSettings() config.ApplicationSettings {
@@ -186,6 +205,12 @@ func (manager *torrentRuntimeManager) metadataClient() *http.Client {
 		return manager.metadataHTTPClient
 	}
 	return http.DefaultClient
+}
+
+func (manager *torrentRuntimeManager) flushSessionRepository(context string) {
+	if err := manager.sessionRepository.Flush(); err != nil {
+		log.Printf("flush session repository after %s failed: %v", context, err)
+	}
 }
 
 func (manager *torrentRuntimeManager) startSession(session model.Session) {
@@ -395,7 +420,9 @@ func (manager *torrentRuntimeManager) waitForMetadata(runtime *sessionRuntime) {
 	})
 	if err != nil {
 		log.Printf("update session %s after metadata failed: %v", runtime.sessionID, err)
+		return
 	}
+	manager.flushSessionRepository("metadata-ready")
 }
 
 func (manager *torrentRuntimeManager) refreshMetrics(runtime *sessionRuntime) {
@@ -477,7 +504,7 @@ func (manager *torrentRuntimeManager) refreshMetrics(runtime *sessionRuntime) {
 			deadState = model.SessionDeadStateNoPeers
 		}
 
-		_, err := manager.sessionRepository.UpdateByID(runtime.sessionID, func(current *model.Session) error {
+		_, err := manager.sessionRepository.UpdateByIDTransient(runtime.sessionID, func(current *model.Session) error {
 			if current.LastError != "" {
 				current.MetadataState = model.SessionMetadataStateError
 				current.DownloadState = model.SessionDownloadStateError
@@ -508,6 +535,9 @@ func (manager *torrentRuntimeManager) refreshMetrics(runtime *sessionRuntime) {
 			current.LastRangeResponseDurationMs = lastRangeDurationMs
 			current.SeekRecoveryMs = seekRecoveryMs
 			current.BufferHitRatio = bufferHitRatio
+			if current.WindowRecoveryCount < 0 {
+				current.WindowRecoveryCount = 0
+			}
 			if firstFrameLatencyMs > 0 {
 				current.FirstFrameLatencyMs = firstFrameLatencyMs
 			}
@@ -633,7 +663,9 @@ func (manager *torrentRuntimeManager) failSession(sessionID, message string) {
 	})
 	if err != nil {
 		log.Printf("mark session %s failed: %v", sessionID, err)
+		return
 	}
+	manager.flushSessionRepository("session-failed")
 }
 
 func (manager *torrentRuntimeManager) activeStreamRequests(sessionID string) int {
@@ -675,6 +707,7 @@ func (manager *torrentRuntimeManager) pauseSession(sessionID string) error {
 	if err != nil {
 		return err
 	}
+	manager.flushSessionRepository("session-pause")
 	log.Printf("[session-pause] session=%s", sessionID)
 	return nil
 }
@@ -709,6 +742,7 @@ func (manager *torrentRuntimeManager) resumeSession(sessionID string) error {
 	if err != nil {
 		return err
 	}
+	manager.flushSessionRepository("session-resume")
 	log.Printf("[session-resume] session=%s", sessionID)
 	return nil
 }
@@ -737,7 +771,9 @@ func (manager *torrentRuntimeManager) stopSession(sessionID string) error {
 	})
 	if err != nil {
 		log.Printf("stop session %s update failed: %v", sessionID, err)
+		return nil
 	}
+	manager.flushSessionRepository("session-stop")
 	return nil
 }
 
@@ -820,7 +856,7 @@ func (manager *torrentRuntimeManager) recordRangeActivity(sessionID, rangeHeader
 		}
 	}
 
-	_, err := manager.sessionRepository.UpdateByID(sessionID, func(current *model.Session) error {
+	_, err := manager.sessionRepository.UpdateByIDTransient(sessionID, func(current *model.Session) error {
 		current.LastRangeRequestAt = lastRangeRequestAt
 		current.LastRangeResponseAt = lastRangeResponseAt
 		current.LastRangeResponseDurationMs = lastRangeDurationMs
@@ -1154,6 +1190,19 @@ func clampInt64(value, minValue, maxValue int64) int64 {
 	return value
 }
 
+func resetRateLimiter(current *rate.Limiter, limitKiBps int) *rate.Limiter {
+	if limitKiBps <= 0 {
+		return nil
+	}
+	bytesPerSecond := limitKiBps * 1024
+	if current == nil {
+		return rate.NewLimiter(rate.Limit(bytesPerSecond), bytesPerSecond)
+	}
+	current.SetLimit(rate.Limit(bytesPerSecond))
+	current.SetBurst(bytesPerSecond)
+	return current
+}
+
 func (manager *torrentRuntimeManager) buildPriorityWindowPlan(runtime *sessionRuntime, rangeStart int64) (priorityWindowPlan, bool) {
 	runtime.mutex.RLock()
 	file := runtime.selectedFile
@@ -1166,6 +1215,9 @@ func (manager *torrentRuntimeManager) buildPriorityWindowPlan(runtime *sessionRu
 	previousWindowBegin := runtime.lastPriorityWindowBegin
 	previousWindowEnd := runtime.lastPriorityWindowEnd
 	generation := runtime.windowGeneration
+	pendingSeekRecovery := runtime.pendingSeekRecovery
+	firstFrameLatencyMs := runtime.firstFrameLatencyMs
+	hadStreamRequest := runtime.successfulStreamRequests > 0
 	runtime.mutex.RUnlock()
 	if file == nil || torrentHandle == nil || torrentHandle.Info() == nil {
 		return priorityWindowPlan{}, false
@@ -1208,7 +1260,13 @@ func (manager *torrentRuntimeManager) buildPriorityWindowPlan(runtime *sessionRu
 	}
 
 	pieceIndex := file.BeginPieceIndex() + int((rangeStart-fileBegin)/pieceLength)
-	playbackSize, prefetchSize, retentionSize := manager.windowPieceSizes()
+	scenario := "steady"
+	if isSeek || pendingSeekRecovery {
+		scenario = "seek"
+	} else if !hadStreamRequest || firstFrameLatencyMs == 0 {
+		scenario = "startup"
+	}
+	playbackSize, prefetchSize, retentionSize := manager.windowPieceSizes(scenario)
 	playbackBegin := clampPieceIndex(pieceIndex-playbackSize/2, file.BeginPieceIndex(), file.EndPieceIndex())
 	playbackEnd := clampPieceIndex(playbackBegin+playbackSize, file.BeginPieceIndex(), file.EndPieceIndex())
 	if playbackBegin >= playbackEnd {
@@ -1221,6 +1279,7 @@ func (manager *torrentRuntimeManager) buildPriorityWindowPlan(runtime *sessionRu
 	if retentionEnd < retentionBegin {
 		retentionEnd = retentionBegin
 	}
+	movesForward := playbackBegin > previousWindowBegin || prefetchEnd > previousWindowEnd
 
 	return priorityWindowPlan{
 		generation:          generation,
@@ -1234,6 +1293,8 @@ func (manager *torrentRuntimeManager) buildPriorityWindowPlan(runtime *sessionRu
 		retentionEnd:        retentionEnd,
 		previousWindowBegin: previousWindowBegin,
 		previousWindowEnd:   previousWindowEnd,
+		scenario:            scenario,
+		movesForward:        movesForward,
 		isSeek:              isSeek,
 	}, true
 }
@@ -1251,6 +1312,12 @@ func (manager *torrentRuntimeManager) applyPriorityWindowPlan(runtime *sessionRu
 	if plan.isSeek && settings.StreamDeprioritizeOldWindow && plan.previousWindowBegin >= 0 && plan.previousWindowEnd > plan.previousWindowBegin {
 		for piece := plan.previousWindowBegin; piece < plan.previousWindowEnd; piece++ {
 			torrentHandle.Piece(piece).SetPriority(torrent.PiecePriorityNormal)
+		}
+	}
+	if plan.movesForward && settings.StreamDeprioritizeOldWindow && plan.previousWindowBegin >= 0 && plan.previousWindowEnd > plan.previousWindowBegin {
+		deprioritizeEnd := minInt(plan.playbackBegin, plan.previousWindowEnd)
+		for piece := plan.previousWindowBegin; piece < deprioritizeEnd; piece++ {
+			torrentHandle.Piece(piece).SetPriority(torrent.PiecePriorityNone)
 		}
 	}
 	for piece := plan.retentionBegin; piece < plan.retentionEnd; piece++ {
@@ -1278,6 +1345,7 @@ func (manager *torrentRuntimeManager) applyPriorityWindowPlan(runtime *sessionRu
 	runtime.retentionWindowBegin = plan.retentionBegin
 	runtime.retentionWindowEnd = plan.retentionEnd
 	runtime.windowGeneration = plan.generation
+	runtime.windowMovesForward = plan.movesForward
 	runtime.lastPreparedRangeStart = plan.rangeStart
 	runtime.hasPreparedRangeStart = true
 	runtime.lastPreparedAt = time.Now()
@@ -1288,7 +1356,7 @@ func (manager *torrentRuntimeManager) applyPriorityWindowPlan(runtime *sessionRu
 	}
 	runtime.mutex.Unlock()
 
-	log.Printf("[stream-window-apply] session=%s generation=%d seek=%t rangeStart=%d playback=%d-%d prefetch=%d-%d retention=%d-%d", runtime.sessionID, plan.generation, plan.isSeek, plan.rangeStart, plan.playbackBegin, plan.playbackEnd, plan.prefetchBegin, plan.prefetchEnd, plan.retentionBegin, plan.retentionEnd)
+	log.Printf("[stream-window-apply] session=%s generation=%d scenario=%s seek=%t rangeStart=%d playback=%d-%d prefetch=%d-%d retention=%d-%d", runtime.sessionID, plan.generation, plan.scenario, plan.isSeek, plan.rangeStart, plan.playbackBegin, plan.playbackEnd, plan.prefetchBegin, plan.prefetchEnd, plan.retentionBegin, plan.retentionEnd)
 }
 
 func (manager *torrentRuntimeManager) applyRangePriority(runtime *sessionRuntime, rangeStart int64, isSeek bool) {
@@ -1350,6 +1418,11 @@ func (manager *torrentRuntimeManager) handlePieceStateChange(runtime *sessionRun
 	playbackEnd := runtime.playbackWindowEnd
 	prefetchBegin := runtime.prefetchWindowBegin
 	prefetchEnd := runtime.prefetchWindowEnd
+	retentionBegin := runtime.retentionWindowBegin
+	retentionEnd := runtime.retentionWindowEnd
+	pendingSeekRecovery := runtime.pendingSeekRecovery
+	lastPreparedAt := runtime.lastPreparedAt
+	lastPieceEventAt := runtime.lastPieceEventAt
 	runtime.lastPieceEventAt = time.Now()
 	runtime.mutex.Unlock()
 	if selectedFile == nil {
@@ -1364,15 +1437,20 @@ func (manager *torrentRuntimeManager) handlePieceStateChange(runtime *sessionRun
 		return
 	}
 	if playbackBegin >= 0 && event.Index >= playbackBegin && event.Index < playbackEnd {
-		manager.maybeAdvanceWindowFromEvents(runtime, generation)
-		return
+		manager.maybeAdvanceWindowFromEvents(runtime, generation, event.Index)
 	}
-	if prefetchBegin >= 0 && event.Index >= prefetchBegin && event.Index < prefetchEnd {
-		manager.markSeekRecoveryIfSatisfied(runtime, generation)
+	if pendingSeekRecovery && prefetchBegin >= 0 && event.Index >= prefetchBegin && event.Index < prefetchEnd {
+		manager.markSeekRecoveryIfSatisfied(runtime, generation, event.Index)
+	}
+	if pendingSeekRecovery {
+		manager.recoverStalledCriticalPieces(runtime, generation, playbackBegin, playbackEnd, prefetchBegin, prefetchEnd, lastPreparedAt, lastPieceEventAt)
+	}
+	if retentionBegin >= 0 && event.Index >= retentionBegin && event.Index < retentionEnd {
+		manager.maybeAdvanceWindowFromEvents(runtime, generation, event.Index)
 	}
 }
 
-func (manager *torrentRuntimeManager) maybeAdvanceWindowFromEvents(runtime *sessionRuntime, generation int64) {
+func (manager *torrentRuntimeManager) maybeAdvanceWindowFromEvents(runtime *sessionRuntime, generation int64, completedPiece int) {
 	runtime.mutex.RLock()
 	if runtime.windowGeneration != generation {
 		runtime.mutex.RUnlock()
@@ -1382,7 +1460,43 @@ func (manager *torrentRuntimeManager) maybeAdvanceWindowFromEvents(runtime *sess
 		runtime.mutex.RUnlock()
 		return
 	}
-	rangeStart := runtime.lastPreparedRangeStart + runtime.currentReadaheadBytes/2
+	selectedFile := runtime.selectedFile
+	pieceLength := int64(0)
+	playbackBegin := runtime.playbackWindowBegin
+	playbackEnd := runtime.playbackWindowEnd
+	prefetchEnd := runtime.prefetchWindowEnd
+	windowMovesForward := runtime.windowMovesForward
+	if runtime.torrent != nil && runtime.torrent.Info() != nil {
+		pieceLength = runtime.torrent.Info().PieceLength
+	}
+	if selectedFile == nil || pieceLength <= 0 {
+		runtime.mutex.RUnlock()
+		return
+	}
+	nextPiece := completedPiece + 1
+	if windowMovesForward {
+		stride := maxInt(1, (playbackEnd-playbackBegin)/2)
+		if nextPiece < playbackBegin+stride {
+			runtime.mutex.RUnlock()
+			return
+		}
+	}
+	if nextPiece < playbackBegin {
+		nextPiece = playbackBegin
+	}
+	if nextPiece >= selectedFile.EndPieceIndex() {
+		runtime.mutex.RUnlock()
+		return
+	}
+	rangeStart := selectedFile.Offset() + int64(nextPiece-selectedFile.BeginPieceIndex())*pieceLength
+	advanceTarget := selectedFile.Offset() + int64(maxInt(playbackEnd, prefetchEnd)-selectedFile.BeginPieceIndex())*pieceLength
+	if rangeStart <= runtime.lastPreparedRangeStart {
+		rangeStart = runtime.lastPreparedRangeStart + pieceLength
+	}
+	if runtime.lastPreparedRangeStart >= advanceTarget {
+		runtime.mutex.RUnlock()
+		return
+	}
 	runtime.mutex.RUnlock()
 	plan, ok := manager.buildPriorityWindowPlan(runtime, rangeStart)
 	if !ok {
@@ -1395,7 +1509,7 @@ func (manager *torrentRuntimeManager) maybeAdvanceWindowFromEvents(runtime *sess
 	runtime.mutex.Unlock()
 }
 
-func (manager *torrentRuntimeManager) markSeekRecoveryIfSatisfied(runtime *sessionRuntime, generation int64) {
+func (manager *torrentRuntimeManager) markSeekRecoveryIfSatisfied(runtime *sessionRuntime, generation int64, completedPiece int) {
 	runtime.mutex.Lock()
 	defer runtime.mutex.Unlock()
 	if !runtime.pendingSeekRecovery {
@@ -1407,17 +1521,125 @@ func (manager *torrentRuntimeManager) markSeekRecoveryIfSatisfied(runtime *sessi
 	if time.Since(runtime.lastSeekAt) < pieceEventIdlePollInterval {
 		return
 	}
+	playbackSpan := runtime.playbackWindowEnd - runtime.playbackWindowBegin
+	if playbackSpan <= 0 {
+		return
+	}
+	seekReadyPiece := runtime.playbackWindowBegin + maxInt(1, playbackSpan/3)
+	if completedPiece < seekReadyPiece || completedPiece >= runtime.prefetchWindowEnd {
+		return
+	}
 	runtime.pendingSeekRecovery = false
 }
 
-func (manager *torrentRuntimeManager) windowPieceSizes() (int, int, int) {
+func (manager *torrentRuntimeManager) recoverStalledCriticalPieces(runtime *sessionRuntime, generation int64, playbackBegin, playbackEnd, prefetchBegin, prefetchEnd int, lastPreparedAt, lastPieceEventAt time.Time) {
+	if playbackBegin < 0 || prefetchBegin < 0 {
+		return
+	}
+	if playbackEnd <= playbackBegin || prefetchEnd <= prefetchBegin {
+		return
+	}
+	if lastPreparedAt.IsZero() {
+		return
+	}
+
+	now := time.Now()
+	stalledOnEvents := !lastPieceEventAt.IsZero() && now.Sub(lastPieceEventAt) >= pieceStallRecoveryWindow
+	stalledOnPrepared := now.Sub(lastPreparedAt) >= pieceStallRecoveryWindow
+	if !stalledOnEvents && !stalledOnPrepared {
+		return
+	}
+
+	runtime.mutex.RLock()
+	if runtime.windowGeneration != generation || !runtime.pendingSeekRecovery || runtime.torrent == nil {
+		runtime.mutex.RUnlock()
+		return
+	}
+	torrentHandle := runtime.torrent
+	lastUsefulBytesDelta := runtime.lastUsefulBytesDelta
+	activePeers := torrentHandle.Stats().ActivePeers
+	runtime.mutex.RUnlock()
+
+	recoveryPlaybackEnd := minInt(playbackEnd, playbackBegin+maxInt(2, (playbackEnd-playbackBegin)/2))
+	recoveryPrefetchEnd := minInt(prefetchEnd, prefetchBegin+maxInt(2, (prefetchEnd-prefetchBegin)/2))
+	torrentHandle.DownloadPieces(playbackBegin, recoveryPlaybackEnd)
+	torrentHandle.DownloadPieces(prefetchBegin, recoveryPrefetchEnd)
+	for piece := playbackBegin; piece < recoveryPlaybackEnd; piece++ {
+		torrentHandle.Piece(piece).SetPriority(torrent.PiecePriorityNow)
+	}
+	for piece := prefetchBegin; piece < recoveryPrefetchEnd; piece++ {
+		torrentHandle.Piece(piece).SetPriority(torrent.PiecePriorityHigh)
+	}
+
+	recoveryReason := "EVENT_STALL"
+	if stalledOnPrepared {
+		recoveryReason = "PREPARED_STALL"
+	}
+	peerRecoveryReason := "NONE"
+	if activePeers > 0 && lastUsefulBytesDelta <= 0 {
+		peerRecoveryReason = "SLOW_PEER_DELIVERY"
+		recoveryPlaybackEnd = minInt(playbackEnd, playbackBegin+maxInt(3, (playbackEnd-playbackBegin)*2/3))
+		recoveryPrefetchEnd = minInt(prefetchEnd, prefetchBegin+maxInt(3, (prefetchEnd-prefetchBegin)*2/3))
+		torrentHandle.DownloadPieces(playbackBegin, recoveryPlaybackEnd)
+		torrentHandle.DownloadPieces(prefetchBegin, recoveryPrefetchEnd)
+		for piece := playbackBegin; piece < recoveryPlaybackEnd; piece++ {
+			torrentHandle.Piece(piece).SetPriority(torrent.PiecePriorityNow)
+		}
+		for piece := prefetchBegin; piece < recoveryPrefetchEnd; piece++ {
+			torrentHandle.Piece(piece).SetPriority(torrent.PiecePriorityNow)
+		}
+	}
+
+	runtime.mutex.Lock()
+	if runtime.windowGeneration == generation {
+		runtime.lastPreparedAt = now
+		runtime.lastWindowAdvanceAt = now
+		runtime.lastPieceEventAt = now
+		runtime.pendingSeekRecovery = true
+		runtime.lastPeerRecoveryAt = now
+		runtime.lastPeerRecoveryReason = peerRecoveryReason
+	}
+	runtime.mutex.Unlock()
+
+	_, _ = manager.sessionRepository.UpdateByIDTransient(runtime.sessionID, func(current *model.Session) error {
+		current.WindowRecoveryCount += 1
+		current.LastWindowRecoveryAt = now
+		current.LastWindowRecoveryReason = recoveryReason
+		if peerRecoveryReason != "NONE" {
+			current.PeerRecoveryCount += 1
+			current.LastPeerRecoveryAt = now
+			current.LastPeerRecoveryReason = peerRecoveryReason
+		}
+		refreshSessionDerivedFields(current, manager.activeStreamRequests(runtime.sessionID))
+		return nil
+	})
+
+	log.Printf("[stream-window-recover] session=%s generation=%d reason=%s peerReason=%s activePeers=%d usefulDelta=%d playback=%d-%d prefetch=%d-%d", runtime.sessionID, generation, recoveryReason, peerRecoveryReason, activePeers, lastUsefulBytesDelta, playbackBegin, recoveryPlaybackEnd, prefetchBegin, recoveryPrefetchEnd)
+}
+
+func (manager *torrentRuntimeManager) windowPieceSizes(scenario string) (int, int, int) {
 	boostWindow := manager.currentSettings().StreamBoostWindowPieces
 	if boostWindow <= 0 {
 		boostWindow = 12
 	}
+
 	playbackSize := maxInt(defaultPlaybackWindowPieces, boostWindow/2)
 	prefetchSize := maxInt(defaultPrefetchWindowPieces, boostWindow)
 	retentionSize := maxInt(defaultRetentionWindowPieces, playbackSize/2)
+
+	switch scenario {
+	case "startup":
+		playbackSize = maxInt(playbackSize, boostWindow)
+		prefetchSize = maxInt(prefetchSize, boostWindow*2)
+		retentionSize = maxInt(retentionSize, playbackSize/2)
+	case "seek":
+		playbackSize = maxInt(defaultPlaybackWindowPieces, boostWindow/2)
+		prefetchSize = maxInt(defaultPrefetchWindowPieces, boostWindow*2)
+		retentionSize = maxInt(2, defaultRetentionWindowPieces/2)
+	default:
+		retentionSize = maxInt(retentionSize, playbackSize/2)
+	}
+
 	return playbackSize, prefetchSize, retentionSize
 }
 

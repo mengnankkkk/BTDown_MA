@@ -1,95 +1,30 @@
 import type { SessionItem } from '../../../types/session'
+import { formatAvailabilityTier, formatBytes, formatProgress, getSessionDownloadSummary } from './sessionMetricFormatters'
 
 interface SessionDetailPanelProps {
   session?: SessionItem
-  onStopSession?: () => void
-  onPauseSession?: () => void
-  onResumeSession?: () => void
-  onCleanupSession?: () => void
 }
 
-function formatAvailabilityTier(tier: string): string {
-  switch (tier) {
-    case 'HIGH_AVAILABLE':
-      return '高概率可用'
-    case 'WEAK_AVAILABLE':
-      return '弱可用'
-    case 'NO_RESOURCE':
-      return '暂未发现资源'
-    case 'HIGH_UNAVAILABLE':
-      return '高概率不可用'
-    default:
-      return '弱可用'
-  }
-}
-
-function formatBytes(value: number): string {
-  const units = ['B', 'KiB', 'MiB', 'GiB']
-  let size = Math.max(0, value)
-  let unitIndex = 0
-
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024
-    unitIndex += 1
-  }
-
-  if (unitIndex === 0) {
-    return `${Math.round(size)} ${units[unitIndex]}`
-  }
-  return `${size.toFixed(2)} ${units[unitIndex]}`
-}
-
-function formatProgress(value: number): string {
-  return `${(Math.max(0, value) * 100).toFixed(1)}%`
-}
-
-function formatEta(remainingBytes: number, speedBytesPerSecond: number): string {
-  if (remainingBytes <= 0) {
-    return '已完成'
-  }
-  if (speedBytesPerSecond <= 0) {
-    return '计算中'
-  }
-
-  const totalSeconds = Math.ceil(remainingBytes / speedBytesPerSecond)
-  const hours = Math.floor(totalSeconds / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  const seconds = totalSeconds % 60
-
-  if (hours > 0) {
-    return `${hours}小时${minutes}分${seconds}秒`
-  }
-  if (minutes > 0) {
-    return `${minutes}分${seconds}秒`
-  }
-  return `${seconds}秒`
-}
-
-export function SessionDetailPanel({ session, onStopSession, onPauseSession, onResumeSession, onCleanupSession }: SessionDetailPanelProps) {
+export function SessionDetailPanel({ session }: SessionDetailPanelProps) {
   if (!session) {
     return (
       <section className="panel session-detail-panel">
         <div className="panel-header">
-          <h2>会话详情</h2>
-          <span>选择一个会话后，在这里查看后端重点指标</span>
+          <h2>详细监控</h2>
+          <span>选择一个会话后，在这里查看完整诊断参数</span>
         </div>
         <p className="empty-state">当前未选择会话</p>
       </section>
     )
   }
 
-  const downloadProgress = session.metrics?.downloadProgress ?? 0
-  const downloadedBytes = session.metrics?.downloadedBytes ?? 0
-  const totalBytes = session.metrics?.totalBytes ?? 0
-  const remainingBytes = Math.max(0, totalBytes - downloadedBytes)
-  const downloadSpeedBytesPerSecond = session.metrics?.downloadSpeedBytesPerSecond ?? 0
-  const etaText = formatEta(remainingBytes, downloadSpeedBytesPerSecond)
+  const { downloadProgress, downloadedBytes, totalBytes, etaText } = getSessionDownloadSummary(session)
 
   return (
     <section className="panel session-detail-panel">
       <div className="panel-header">
         <h2>{session.name}</h2>
-        <span>聚合查看下载、流媒体与慢因诊断，便于调参与实验</span>
+        <span>完整下载、流媒体、网络与慢因诊断参数</span>
       </div>
       <div className="detail-grid">
         <div className="detail-item">
@@ -165,6 +100,40 @@ export function SessionDetailPanel({ session, onStopSession, onPauseSession, onR
           <p>{Math.round((session.metrics?.bufferHitRatio ?? 0) * 100)}%</p>
         </div>
         <div className="detail-item">
+          <strong>关键块补拉次数</strong>
+          <p>{session.metrics?.windowRecoveryCount ?? 0}</p>
+        </div>
+        <div className="detail-item">
+          <strong>最近补拉时间</strong>
+          <p>{session.metrics?.lastWindowRecoveryAt || '暂无'}</p>
+        </div>
+        <div className="detail-item">
+          <strong>最近补拉原因</strong>
+          <p>{session.metrics?.lastWindowRecoveryReason || '暂无'}</p>
+        </div>
+        <div className="detail-item">
+          <strong>慢 Peer 补救次数</strong>
+          <p>{session.metrics?.peerRecoveryCount ?? 0}</p>
+        </div>
+        <div className="detail-item">
+          <strong>最近慢 Peer 补救时间</strong>
+          <p>{session.metrics?.lastPeerRecoveryAt || '暂无'}</p>
+        </div>
+        <div className="detail-item">
+          <strong>最近慢 Peer 补救原因</strong>
+          <p>{session.metrics?.lastPeerRecoveryReason || '暂无'}</p>
+        </div>
+        <div className="detail-item">
+          <strong>补拉恢复成功率</strong>
+          <p>{Math.round((session.metrics?.recoverySuccessRate ?? 0) * 100)}%</p>
+        </div>
+        <div className="detail-item">
+          <strong>恢复耗时分布</strong>
+          <p>
+            {'<'}1s:{session.metrics?.recoveryLatencyBuckets?.lt1s ?? 0} / 1-3s:{session.metrics?.recoveryLatencyBuckets?.['1to3s'] ?? 0} / 3-8s:{session.metrics?.recoveryLatencyBuckets?.['3to8s'] ?? 0} / {'>'}8s:{session.metrics?.recoveryLatencyBuckets?.gt8s ?? 0}
+          </p>
+        </div>
+        <div className="detail-item">
           <strong>流媒体状态</strong>
           <p>{session.metrics?.streamStateText ?? session.streamState}</p>
         </div>
@@ -218,30 +187,6 @@ export function SessionDetailPanel({ session, onStopSession, onPauseSession, onR
       <div className="panel-subsection">
         <strong>Stream URL</strong>
         <p className="session-field">{session.streamUrl}</p>
-      </div>
-      <div className="panel-subsection session-actions">
-        <button type="button" className="session-action-button" onClick={onStopSession}>
-          停止会话
-        </button>
-        <button
-          type="button"
-          className="session-action-button"
-          onClick={onPauseSession}
-          disabled={session.downloadState !== 'DOWNLOADING'}
-        >
-          暂停下载
-        </button>
-        <button
-          type="button"
-          className="session-action-button"
-          onClick={onResumeSession}
-          disabled={session.downloadState !== 'PAUSED'}
-        >
-          继续下载
-        </button>
-        <button type="button" className="session-action-button session-action-button-danger" onClick={onCleanupSession}>
-          清理会话
-        </button>
       </div>
     </section>
   )

@@ -19,6 +19,14 @@ export interface SessionMetrics {
   firstFrameLatencyMs: number
   seekRecoveryMs: number
   bufferHitRatio: number
+  windowRecoveryCount: number
+  lastWindowRecoveryAt: string
+  lastWindowRecoveryReason: string
+  peerRecoveryCount: number
+  lastPeerRecoveryAt: string
+  lastPeerRecoveryReason: string
+  recoveryLatencyBuckets: Record<string, number>
+  recoverySuccessRate: number
   downloadSpeedText: string
   streamStateText: string
   deadTorrentStateText: string
